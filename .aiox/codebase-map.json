@@ -1,6 +1,6 @@
 {
   "project": "BulkEmailsCrefito11",
-  "mappedAt": "2026-04-21T18:45:15.622Z",
+  "mappedAt": "2026-04-21T19:36:45.478Z",
   "version": "1.0",
   "structure": {
     "type": "directory",
@@ -112,6 +112,8 @@
                   "fileCleanup.ts",
                   "idempotencyService.test.ts",
                   "idempotencyService.ts",
+                  "jobStatusService.test.ts",
+                  "jobStatusService.ts",
                   "xlsxService.ts"
                 ]
               }
@@ -140,7 +142,8 @@
             "files": [
               "1.1.bug-fix-progresso-email.story.md",
               "1.2.bug-fix-form-colors.story.md",
-              "1.3.dashboard-listagem-jobs.story.md"
+              "1.3.dashboard-listagem-jobs.story.md",
+              "1.4.bug-fix-status-divergente.story.md"
             ],
             "children": {
               "1.1": {
@@ -168,6 +171,15 @@
                     "truncated": true
                   },
                   "spec": {
+                    "type": "directory",
+                    "truncated": true
+                  }
+                }
+              },
+              "1.4": {
+                "type": "directory",
+                "children": {
+                  "qa": {
                     "type": "directory",
                     "truncated": true
                   }
@@ -341,7 +353,7 @@
     "testing": "jest"
   },
   "conventions": {
-    "fileNaming": "camelCase (43 files)",
+    "fileNaming": "camelCase (44 files)",
     "componentNaming": "PascalCase",
     "imports": "relative paths",
     "exports": "named exports preferred",
@@ -355,9 +367,9 @@
     "dev": []
   },
   "stats": {
-    "totalFiles": 96,
-    "codeFiles": 55,
-    "testFiles": 8,
+    "totalFiles": 101,
+    "codeFiles": 57,
+    "testFiles": 9,
     "components": 8,
     "configFiles": 10
   },
