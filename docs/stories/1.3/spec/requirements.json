@@ -1,0 +1,98 @@
+{
+  "storyId": "1.3",
+  "gatheredAt": "2026-04-21T15:00:00Z",
+  "source": "user",
+  "gatheredBy": "@pm",
+  "elicitationVersion": "2.0",
+  "functional": [
+    {
+      "id": "FR-1",
+      "description": "O sistema deve listar todos os jobs de envio de e-mail processados ou em conclusão.",
+      "priority": "P0",
+      "rationale": "Permitir que o usuário acompanhe o histórico sem precisar saber o jobId exato.",
+      "acceptance": [
+        "AC-1: A lista deve exibir data de criação, total de e-mails e progresso (%) de cada job."
+      ]
+    },
+    {
+      "id": "FR-2",
+      "description": "O sistema deve permitir filtrar jobs através de um Query Builder no backend e filtros no frontend.",
+      "priority": "P1",
+      "rationale": "Facilitar a localização de jobs específicos em grandes volumes de dados.",
+      "acceptance": [
+        "AC-2: O filtro deve ser aplicado em tempo real ou via submissão de formulário de busca."
+      ]
+    },
+    {
+      "id": "FR-3",
+      "description": "O sistema deve permitir a exclusão de jobs, mas apenas após a conclusão do processamento.",
+      "priority": "P1",
+      "rationale": "Manutenção do histórico e limpeza de dados obsoletos.",
+      "acceptance": [
+        "AC-3: Dado que um job está 'concluído', quando clico em excluir, então ele deve ser removido da lista e do banco de dados."
+      ]
+    }
+  ],
+  "nonFunctional": [
+    {
+      "id": "NFR-1",
+      "category": "usability",
+      "description": "Acesso público aos jobs: Todos os usuários autenticados devem ter visibilidade de todos os jobs na listagem.",
+      "metric": "100% de visibilidade para usuários logados"
+    }
+  ],
+  "constraints": [
+    {
+      "id": "CON-1",
+      "type": "technical",
+      "description": "A listagem deve implementar paginação de 20 itens por vez tanto no frontend quanto no backend.",
+      "impact": "Evita sobrecarga de memória e lentidão no carregamento da página."
+    },
+    {
+      "id": "CON-2",
+      "type": "business",
+      "description": "Cancelamento de jobs em processamento não será tratado nesta feature.",
+      "impact": "Foco apenas na visualização e gestão pós-conclusão."
+    }
+  ],
+  "assumptions": [
+    {
+      "id": "ASM-1",
+      "description": "Assume-se que a API já possui os dados necessários (data, total, progresso) persistidos no banco.",
+      "risk": "medium"
+    }
+  ],
+  "domainModel": [
+    {
+      "entity": "Job",
+      "description": "Entidade principal que representa um lote de disparos de e-mail.",
+      "relationships": [
+        "Um Job possui muitos logs de envio (emails)"
+      ]
+    }
+  ],
+  "interactions": [
+    {
+      "flow": "Acesso ao Dashboard",
+      "description": "O usuário clica no link 'Dashboard' no Navbar para visualizar a listagem.",
+      "states": [
+        "Loading: Skeleton screen enquanto os dados são buscados.",
+        "Empty: Exibir mensagem informativa com botão para 'Novo Envio' caso não existam jobs."
+      ]
+    }
+  ],
+  "edgeCases": [
+    {
+      "scenario": "Acessar dashboard sem jobs cadastrados",
+      "handling": "Exibir Empty State customizado.",
+      "severity": "low"
+    }
+  ],
+  "terminology": [
+    {
+      "term": "Job",
+      "definition": "Um processo de envio em massa iniciado a partir de um formulário ou upload."
+    }
+  ],
+  "openQuestions": []
+}

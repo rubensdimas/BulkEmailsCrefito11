@@ -11,6 +11,7 @@ import path from 'path';
 import uploadRoutes from './routes/uploadRoutes';
 import sendRoutes from './routes/sendRoutes';
 import statusRoutes from './routes/statusRoutes';
+import jobRoutes from './routes/jobRoutes';
 import { httpErrorHandler, notFoundHandler } from './middlewares/errorHandler';
 
 // Load environment variables
@@ -33,6 +34,7 @@ app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 app.use('/api/upload', uploadRoutes);
 app.use('/api/send', sendRoutes);
 app.use('/api/status', statusRoutes);
+app.use('/api/jobs', jobRoutes);
 
 /**
  * Health check endpoint

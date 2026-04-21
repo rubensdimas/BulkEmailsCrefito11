@@ -1,0 +1,122 @@
+storyId: "1.3"
+createdAt: "2026-04-21T17:15:00Z"
+createdBy: "@architect"
+status: pending
+complexity: STANDARD
+estimatedEffort: "1-2 dias"
+
+dependencies:
+  - name: knex
+    version: "^3.1.0"
+    purpose: Query Builder para listagem e exclusão
+  - name: react-router-dom
+    version: "^6.21.1"
+    purpose: Navegação para a nova página de Dashboard
+  - name: axios
+    version: "^1.6.3"
+    purpose: Consumo dos novos endpoints de jobs
+
+phases:
+  - id: phase-1
+    name: Setup & API Definition
+    description: Configuração inicial de rotas e definição de tipos na API
+    subtasks:
+      - id: "1.1"
+        description: "Atualizar api.ts com tipos e métodos getJobs e deleteJob"
+        service: frontend
+        files:
+          - frontend/src/services/api.ts
+        verification:
+          type: command
+          command: "npm run typecheck"
+        status: completed
+      - id: "1.2"
+        description: "Registrar JobRoutes no app.ts do backend"
+        service: backend
+        files:
+          - backend/src/app.ts
+        verification:
+          type: command
+          command: "npm run build"
+        status: completed
+
+  - id: phase-2
+    name: Backend Implementation
+    description: Implementação da lógica de controle e rotas de jobs
+    subtasks:
+      - id: "2.1"
+        description: "Criar JobController com métodos de listagem (paginada) e exclusão"
+        service: backend
+        files:
+          - backend/src/controllers/jobController.ts
+        verification:
+          type: command
+          command: "npm test backend/src/controllers/jobController.test.ts"
+        status: completed
+        notes: "Garantir validação de status 'completed' para exclusão."
+      - id: "2.2"
+        description: "Criar JobRoutes para expor os endpoints /api/jobs"
+        service: backend
+        files:
+          - backend/src/routes/jobRoutes.ts
+        verification:
+          type: api
+          url: "http://localhost:3000/api/jobs"
+          method: GET
+          expectedStatus: 200
+        status: completed
+        dependencies: ["2.1"]
+
+  - id: phase-3
+    name: Frontend Implementation
+    description: Criação da página de Dashboard e integração de navegação
+    subtasks:
+      - id: "3.1"
+        description: "Criar DashboardPage com tabela, paginação e filtros"
+        service: frontend
+        files:
+          - frontend/src/pages/DashboardPage.tsx
+        verification:
+          type: browser
+          url: "http://localhost:5173/dashboard"
+          actions:
+            - "Verificar se a lista de jobs é carregada"
+            - "Testar filtros de status"
+        status: completed
+        dependencies: ["1.1", "2.2"]
+      - id: "3.2"
+        description: "Configurar rota /dashboard no App.tsx e link no Header da HomePage"
+        service: frontend
+        files:
+          - frontend/src/App.tsx
+          - frontend/src/pages/HomePage.tsx
+        verification:
+          type: manual
+          instructions: "Navegar da Home para o Dashboard via link no Header e verificar persistência."
+        status: completed
+        dependencies: ["3.1"]
+
+  - id: phase-4
+    name: Validation & Testing
+    description: Testes de integração e validação de critérios de aceite
+    subtasks:
+      - id: "4.1"
+        description: "Escrever testes de integração para exclusão em cascata e paginação"
+        service: backend
+        files:
+          - backend/src/controllers/jobController.test.ts
+        verification:
+          type: command
+          command: "npm test"
+        status: completed
+        dependencies: ["2.1"]
+      - id: "4.2"
+        description: "Validar cenário de Empty State no Dashboard"
+        service: frontend
+        files:
+          - frontend/src/pages/DashboardPage.tsx
+        verification:
+          type: manual
+          instructions: "Acessar dashboard sem jobs e validar mensagem informativa com link para novo envio."
+        status: completed
+        dependencies: ["3.1"]

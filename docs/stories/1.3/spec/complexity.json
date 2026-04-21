@@ -1,0 +1,36 @@
+{
+  "storyId": "1.3",
+  "assessedAt": "2026-04-21T15:30:00Z",
+  "assessedBy": "@architect",
+  "result": "STANDARD",
+  "overridden": false,
+  "dimensions": {
+    "scope": {
+      "score": 3,
+      "notes": "Afeta backend (rotas/controllers) e frontend (página/componentes/navegação)."
+    },
+    "integration": {
+      "score": 2,
+      "notes": "Nova API interna baseada em padrões existentes."
+    },
+    "infrastructure": {
+      "score": 2,
+      "notes": "Requer novas queries de paginação/filtro via Knex."
+    },
+    "knowledge": {
+      "score": 1,
+      "notes": "Padrões técnicos já dominados no codebase."
+    },
+    "risk": {
+      "score": 3,
+      "notes": "Gestão de exclusão de dados e visibilidade pública de jobs."
+    }
+  },
+  "totalScore": 11,
+  "pipelinePhases": ["gather", "assess", "research", "spec", "critique", "plan"],
+  "flags": [
+    "Necessário criar JobController para isolar lógica de listagem/exclusão",
+    "Garantir que a paginação no frontend utilize debounce nos filtros"
+  ],
+  "estimatedEffort": "1-2 dias"
+}

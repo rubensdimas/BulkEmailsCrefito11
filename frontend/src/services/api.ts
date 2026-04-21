@@ -98,6 +98,34 @@ export interface JobStatus {
   completedAt?: string;
 }
 
+export interface Job {
+  id: string;
+  campaign_id: string;
+  subject: string;
+  status: 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled';
+  priority: 'low' | 'normal' | 'high' | 'critical';
+  total_recipients: number;
+  valid_recipients: number;
+  invalid_recipients: number;
+  completed_count: number;
+  failed_count: number;
+  created_at: string;
+  updated_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+}
+
+export interface PaginatedResponse<T> {
+  success: boolean;
+  data: T[];
+  pagination: {
+    total: number;
+    limit: number;
+    offset: number;
+    pages: number;
+  };
+}
+
 // ============= API Functions =============
 
 // Upload XLSX file
@@ -123,6 +151,18 @@ export const sendEmails = async (data: SendEmailRequest): Promise<SendEmailRespo
 // Get job status
 export const getJobStatus = async (jobId: string): Promise<JobStatus> => {
   const response = await api.get<JobStatus>(`/status/${jobId}`);
+  return response.data;
+};
+
+// Get jobs list with pagination and filters
+export const getJobs = async (params?: { limit?: number; offset?: number; status?: string }): Promise<PaginatedResponse<Job>> => {
+  const response = await api.get<PaginatedResponse<Job>>('/jobs', { params });
+  return response.data;
+};
+
+// Delete job
+export const deleteJob = async (jobId: string): Promise<{ success: boolean; message: string }> => {
+  const response = await api.delete<{ success: boolean; message: string }>(`/jobs/${jobId}`);
   return response.data;
 };
 

@@ -123,6 +123,31 @@ export class JobRepository {
   }
 
   /**
+   * Count jobs with optional filters
+   */
+  async count(filter?: JobFilter): Promise<number> {
+    let query = this.db('jobs');
+
+    if (filter) {
+      if (filter.status) {
+        query = query.where('status', filter.status);
+      }
+      if (filter.campaign_id) {
+        query = query.where('campaign_id', filter.campaign_id);
+      }
+      if (filter.from_date) {
+        query = query.where('created_at', '>=', filter.from_date);
+      }
+      if (filter.to_date) {
+        query = query.where('created_at', '<=', filter.to_date);
+      }
+    }
+
+    const row = await query.count('* as total').first();
+    return Number(row?.total) || 0;
+  }
+
+  /**
    * Update job
    */
   async update(id: string, input: UpdateJobInput): Promise<Job | null> {

@@ -1,0 +1,108 @@
+{
+  "storyId": "1.3",
+  "researchedAt": "2026-04-21T16:15:00Z",
+  "researchedBy": "@analyst",
+  "complexity": "STANDARD",
+  "dependencies": [
+    {
+      "name": "knex",
+      "type": "library",
+      "version": "^3.1.0",
+      "verified": true,
+      "source": "codebase",
+      "existing": {
+        "installed": true,
+        "currentVersion": "^3.1.0",
+        "usageLocations": ["backend/src/repositories/jobRepository.ts"]
+      },
+      "documentation": {
+        "url": "https://knexjs.org/guide/query-builder.html"
+      },
+      "patterns": [
+        {
+          "name": "pagination",
+          "description": "Uso de limit e offset para paginação no SQL.",
+          "codeExample": "query.limit(20).offset(0)"
+        }
+      ],
+      "compatibility": {
+        "preferred": true,
+        "alternatives": [],
+        "conflicts": []
+      }
+    },
+    {
+      "name": "react-router-dom",
+      "type": "library",
+      "version": "^6.21.1",
+      "verified": true,
+      "source": "codebase",
+      "existing": {
+        "installed": true,
+        "currentVersion": "^6.21.1",
+        "usageLocations": ["frontend/src/App.tsx"]
+      },
+      "documentation": {
+        "url": "https://reactrouter.com/en/main"
+      },
+      "patterns": [
+        {
+          "name": "routing",
+          "description": "Definição de novas rotas no frontend.",
+          "codeExample": "<Route path=\"/dashboard\" element={<DashboardPage />} />"
+        }
+      ],
+      "compatibility": {
+        "preferred": true,
+        "alternatives": [],
+        "conflicts": []
+      }
+    },
+    {
+      "name": "axios",
+      "type": "library",
+      "version": "^1.6.3",
+      "verified": true,
+      "source": "codebase",
+      "existing": {
+        "installed": true,
+        "currentVersion": "^1.6.3",
+        "usageLocations": ["frontend/src/services/api.ts"]
+      },
+      "documentation": {
+        "url": "https://axios-http.com/docs/intro"
+      },
+      "patterns": [
+        {
+          "name": "api-call",
+          "description": "Consumo de novos endpoints REST.",
+          "codeExample": "api.get('/jobs', { params: { limit, offset } })"
+        }
+      ],
+      "compatibility": {
+        "preferred": true,
+        "alternatives": [],
+        "conflicts": []
+      }
+    }
+  ],
+  "unverifiedClaims": [],
+  "recommendations": [
+    {
+      "type": "prefer",
+      "subject": "Knex Query Builder",
+      "rationale": "O jobRepository já possui métodos findAll e getStats que podem ser reaproveitados ou estendidos, garantindo consistência técnica."
+    },
+    {
+      "type": "consider",
+      "subject": "Debounce no filtro",
+      "rationale": "Para evitar múltiplas chamadas à API enquanto o usuário digita nos filtros do Dashboard."
+    },
+    {
+      "type": "avoid",
+      "subject": "Novas dependências de UI",
+      "rationale": "A stack atual já conta com Tailwind CSS e componentes customizados. Adicionar uma biblioteca de componentes agora aumentaria a complexidade desnecessariamente."
+    }
+  ],
+  "researchNotes": "A implementação deve focar na criação do JobController e JobRoutes para isolar a lógica de listagem e exclusão, mantendo o StatusController focado no status individual de jobs ativos/pendentes."
+}

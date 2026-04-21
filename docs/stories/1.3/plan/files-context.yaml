@@ -1,0 +1,70 @@
+storyId: "1.3"
+storyPath: "docs/stories/1.3/"
+specAvailable: true
+
+relevantFiles:
+  toModify:
+    - path: "backend/src/app.ts"
+      purpose: "Registrar as novas rotas de jobs."
+      confidence: "high"
+      reason: "Ponto de entrada central da API."
+    - path: "frontend/src/services/api.ts"
+      purpose: "Adicionar métodos getJobs e deleteJob e seus tipos."
+      confidence: "high"
+      reason: "Camada de comunicação frontend-backend."
+    - path: "frontend/src/App.tsx"
+      purpose: "Configurar a rota /dashboard."
+      confidence: "high"
+      reason: "Roteamento principal do frontend."
+    - path: "frontend/src/pages/HomePage.tsx"
+      purpose: "Adicionar link de navegação para o Dashboard no Header."
+      confidence: "high"
+      reason: "Ponto de acesso do usuário à nova funcionalidade."
+
+  exemplars:
+    - path: "backend/src/controllers/statusController.ts"
+      purpose: "Exemplo de controller que lida com status de jobs."
+      keyPatterns:
+        - "Uso de Request/Response do Express"
+        - "Tratamento de erros"
+    - path: "backend/src/routes/statusRoutes.ts"
+      purpose: "Exemplo de definição de rotas."
+      keyPatterns:
+        - "Express Router"
+    - path: "frontend/src/pages/StatusPage.tsx"
+      purpose: "Padrão de página que consome dados de jobs."
+      keyPatterns:
+        - "Uso do hook useEffect para fetch de dados"
+        - "Renderização condicional (loading/error)"
+
+  dependencies:
+    - path: "backend/src/repositories/jobRepository.ts"
+      relationship: "Fornece os métodos CRUD para jobs no banco de dados."
+
+  tests:
+    - path: "backend/src/controllers/jobController.test.ts"
+      type: "unit"
+      status: "needed"
+    - path: "frontend/e2e/dashboard.spec.ts"
+      type: "e2e"
+      status: "needed"
+
+storyAnalysis:
+  components:
+    - "DashboardPage"
+    - "JobTable"
+    - "Pagination"
+  modules:
+    - "backend/controllers"
+    - "backend/routes"
+    - "frontend/pages"
+  estimatedFiles:
+    new: 3
+    modified: 4
+    deleted: 0
+
+metadata:
+  generatedBy: "@architect"
+  generatedAt: "2026-04-21T17:30:00Z"
+  storyParsed: true
+  specParsed: true

@@ -1,0 +1,45 @@
+project:
+  name: "bulkmail-pro"
+  version: "1.0.0"
+  type: "brownfield"
+
+  stack:
+    runtime: "Node.js 18+ (Vite/Express)"
+    language: "TypeScript 5.3.3"
+    testing: "Jest (Backend) / Playwright (Frontend)"
+    linting: "ESLint 8.56.0 + Prettier"
+
+  conventions:
+    naming:
+      files: "camelCase / kebab-case (mixed)"
+      directories: "camelCase"
+      components: "PascalCase"
+    imports:
+      style: "ES Modules (Frontend) / CommonJS & ESM (Backend)"
+      alias: "N/A"
+
+  patterns:
+    state: "Zustand"
+    api: "REST (Express + Axios)"
+    components: "React (Tailwind CSS)"
+    testing: "Unit, Integration, E2E"
+
+  scripts:
+    test: "npm test"
+    lint: "npm run lint"
+    build: "npm run build"
+    dev: "npm run dev"
+
+  directories:
+    source: "backend/src, frontend/src"
+    tests: "backend/src/**/__tests__, frontend/e2e"
+    stories: "docs/stories"
+    agents: ".gemini/rules/AIOX/agents"
+
+metadata:
+  generatedBy: "@architect"
+  generatedAt: "2026-04-21T17:30:00Z"
+  sources:
+    - ".aiox-core/core-config.yaml"
+    - "backend/package.json"
+    - "frontend/package.json"
