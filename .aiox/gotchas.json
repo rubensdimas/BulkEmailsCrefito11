@@ -1,20 +1,32 @@
 {
-  "schema": "aiox-gotchas-v1",
+  "schema": "aiox-gotchas-memory-v1",
   "version": "1.0.0",
-  "generatedAt": "2026-04-21T18:41:56.504Z",
+  "projectId": "BulkEmailsCrefito11",
+  "lastUpdated": "2026-04-21T19:33:17.327Z",
   "statistics": {
-    "total": 3,
-    "bySeverity": {
-      "high": 1,
-      "medium": 2,
-      "low": 0
-    },
+    "totalGotchas": 4,
+    "resolved": 0,
+    "unresolved": 4,
     "byCategory": {
       "API": 1,
       "Database": 1,
-      "Other": 1
+      "Other": 1,
+      "integration": 1
     },
-    "insightsScanned": 1
+    "bySeverity": {
+      "critical": 0,
+      "warning": 1,
+      "info": 0,
+      "high": 1,
+      "medium": 2
+    },
+    "bySource": {
+      "manual": 1,
+      "auto_detected": 0,
+      "legacy": 3
+    },
+    "trackedErrors": 0,
+    "pendingAutoCapture": 0
   },
   "gotchas": [
     {
@@ -59,57 +71,30 @@
       "storyId": "1.3",
       "relatedFiles": [],
       "tags": []
+    },
+    {
+      "id": "gotcha-mo90sklc-odlko0",
+      "title": "Job Status column vs Real-time computation divergence",
+      "description": "The \"status\" column in the jobs table is a static snapshot and can become stale during active processing.",
+      "category": "integration",
+      "severity": "warning",
+      "workaround": "Always use JobStatusService.computeJobStatus() for real-time accuracy. Use the sync logic (shouldSyncStatus) to update the DB column upon completion to maintain listing performance.",
+      "relatedFiles": [
+        "backend/src/services/jobStatusService.ts",
+        "backend/src/controllers/jobController.ts",
+        "backend/src/controllers/statusController.ts"
+      ],
+      "trigger": null,
+      "source": {
+        "type": "manual",
+        "occurrences": 1,
+        "firstSeen": "2026-04-21T19:31:54.815Z",
+        "lastSeen": "2026-04-21T19:31:54.815Z"
+      },
+      "resolved": false,
+      "resolvedAt": null,
+      "resolvedBy": null,
+      "createdAt": "2026-04-21T19:31:54.815Z"
     }
-  ],
-  "categories": {
-    "API": [
-      {
-        "id": "gotcha-1.3-1e8884ca",
-        "title": "Excluir um job em processamento ('processing' ou 'pending...",
-        "category": "API",
-        "wrong": "Permitir a exclusão de qualquer job via API sem verificar o status.",
-        "right": "Validar se o status do job é 'completed', 'failed' ou 'cancelled' antes de executar o hardDelete.",
-        "reason": "Excluir um job em processamento ('processing' ou 'pending') pode causar inconsistências na fila do Bull e erros de processamento em segundo plano.",
-        "severity": "high",
-        "discoveredAt": "2026-04-21T18:45:00Z",
-        "storyId": "1.3",
-        "relatedFiles": [
-          "backend/src/controllers/jobController.ts"
-        ],
-        "tags": []
-      }
-    ],
-    "Database": [
-      {
-        "id": "gotcha-1.3-498aaf55",
-        "title": "Sem os filtros, a paginação no frontend exibirá um número...",
-        "category": "Database",
-        "wrong": "Realizar a contagem total de jobs sem aplicar os mesmos filtros da listagem.",
-        "right": "Garantir que a query de count() receba o mesmo objeto JobFilter que a query de listagem.",
-        "reason": "Sem os filtros, a paginação no frontend exibirá um número incorreto de páginas e resultados totais quando um filtro for aplicado.",
-        "severity": "medium",
-        "discoveredAt": "2026-04-21T18:45:00Z",
-        "storyId": "1.3",
-        "relatedFiles": [
-          "backend/src/repositories/jobRepository.ts"
-        ],
-        "tags": []
-      }
-    ],
-    "Other": [
-      {
-        "id": "gotcha-1.3-58e0cd2b",
-        "title": "Dashboard Empty State Pattern",
-        "category": "Other",
-        "wrong": "Exibir uma tabela vazia ou spinner infinito quando não há dados.",
-        "right": "Exibir mensagem informativa, ícone descritivo e um botão de CTA (Call to Action) para a funcionalidade principal.",
-        "reason": "Melhora o onboarding do usuário e reduz o abandono da página.",
-        "severity": "medium",
-        "discoveredAt": "2026-04-21T18:45:00Z",
-        "storyId": "1.3",
-        "relatedFiles": [],
-        "tags": []
-      }
-    ]
-  }
+  ]
 }

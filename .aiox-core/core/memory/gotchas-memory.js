@@ -316,7 +316,10 @@ class GotchasMemory extends EventEmitter {
     gotchas.sort((a, b) => {
       const severityDiff = (severityOrder[a.severity] || 2) - (severityOrder[b.severity] || 2);
       if (severityDiff !== 0) return severityDiff;
-      return new Date(b.source.lastSeen) - new Date(a.source.lastSeen);
+      
+      const timeA = a.source ? new Date(a.source.lastSeen) : new Date(a.discoveredAt || 0);
+      const timeB = b.source ? new Date(b.source.lastSeen) : new Date(b.discoveredAt || 0);
+      return timeB - timeA;
     });
 
     return gotchas;
@@ -514,7 +517,11 @@ class GotchasMemory extends EventEmitter {
     for (const gotcha of gotchas) {
       byCategory[gotcha.category] = (byCategory[gotcha.category] || 0) + 1;
       bySeverity[gotcha.severity] = (bySeverity[gotcha.severity] || 0) + 1;
-      bySource[gotcha.source.type] = (bySource[gotcha.source.type] || 0) + 1;
+      if (gotcha.source && gotcha.source.type) {
+        bySource[gotcha.source.type] = (bySource[gotcha.source.type] || 0) + 1;
+      } else {
+        bySource['legacy'] = (bySource['legacy'] || 0) + 1;
+      }
     }
 
     return {
@@ -553,6 +560,7 @@ class GotchasMemory extends EventEmitter {
    * @returns {string} Markdown content
    */
   toMarkdown() {
+    const gotchas = this.listGotchas();
     const stats = this.getStatistics();
     const now = new Date().toISOString();
 
@@ -569,17 +577,19 @@ class GotchasMemory extends EventEmitter {
 `;
 
     // Generate TOC by category
-    for (const category of Object.values(GotchaCategory)) {
+    const allCategories = [...new Set([...Object.values(GotchaCategory), ...gotchas.map(g => g.category)])].sort();
+    
+    for (const category of allCategories) {
       const count = stats.byCategory[category] || 0;
       if (count > 0) {
-        md += `- [${category.charAt(0).toUpperCase() + category.slice(1)}](#${category}) (${count})\n`;
+        md += `- [${category.charAt(0).toUpperCase() + category.slice(1)}](#${category.toLowerCase().replace(/\s+/g, '-')}) (${count})\n`;
       }
     }
 
     md += '\n---\n\n';
 
     // Generate content by category
-    for (const category of Object.values(GotchaCategory)) {
+    for (const category of allCategories) {
       const categoryGotchas = this.listGotchas({ category });
       if (categoryGotchas.length === 0) continue;
 
@@ -840,8 +850,14 @@ class GotchasMemory extends EventEmitter {
       md += `**Related Files:** ${gotcha.relatedFiles.join(', ')}\n\n`;
     }
 
-    md += `**Source:** ${gotcha.source.type} (${gotcha.source.occurrences} occurrences)\n`;
-    md += `**First Seen:** ${gotcha.source.firstSeen}\n\n`;
+    if (gotcha.source) {
+      md += `**Source:** ${gotcha.source.type || 'unknown'} (${gotcha.source.occurrences || 1} occurrences)\n`;
+      if (gotcha.source.firstSeen) {
+        md += `**First Seen:** ${gotcha.source.firstSeen}\n\n`;
+      }
+    } else if (gotcha.discoveredAt) {
+      md += `**Discovered:** ${gotcha.discoveredAt}\n\n`;
+    }
 
     md += '---\n\n';
     return md;
