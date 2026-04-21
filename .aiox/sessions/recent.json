@@ -1,0 +1,22 @@
+[
+  {
+    "sessionId": "unknown",
+    "timestamp": "2026-04-21T05:52:07.208Z",
+    "provider": "gemini"
+  },
+  {
+    "sessionId": "unknown",
+    "timestamp": "2026-04-21T05:52:06.603Z",
+    "provider": "gemini"
+  },
+  {
+    "sessionId": "unknown",
+    "timestamp": "2026-04-21T04:19:49.950Z",
+    "provider": "gemini"
+  },
+  {
+    "sessionId": "unknown",
+    "timestamp": "2026-04-21T04:19:49.704Z",
+    "provider": "gemini"
+  }
+]
