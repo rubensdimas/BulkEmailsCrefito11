@@ -77,7 +77,9 @@ export function EmailForm({ onSubmit, disabled = false, isLoading = false, email
             'focus:ring-2 focus:ring-primary-500 focus:border-primary-500',
             'placeholder:text-gray-400',
             errors.subject ? 'border-red-500 focus:ring-red-500' : 'border-gray-300',
-            disabled && 'bg-gray-100 cursor-not-allowed'
+            disabled
+              ? 'bg-gray-100 text-gray-500 cursor-not-allowed'
+              : 'bg-white text-gray-900'
           )}
         />
         {errors.subject && (
@@ -103,7 +105,9 @@ export function EmailForm({ onSubmit, disabled = false, isLoading = false, email
             'focus:ring-2 focus:ring-primary-500 focus:border-primary-500',
             'placeholder:text-gray-400',
             errors.body ? 'border-red-500 focus:ring-red-500' : 'border-gray-300',
-            disabled && 'bg-gray-100 cursor-not-allowed'
+            disabled
+              ? 'bg-gray-100 text-gray-500 cursor-not-allowed'
+              : 'bg-white text-gray-900'
           )}
         />
         {errors.body && (
