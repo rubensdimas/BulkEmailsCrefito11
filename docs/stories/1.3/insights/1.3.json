@@ -1,0 +1,40 @@
+{
+  "storyId": "1.3",
+  "capturedAt": "2026-04-21T18:45:00Z",
+  "gotchasFound": [
+    {
+      "wrong": "Permitir a exclusão de qualquer job via API sem verificar o status.",
+      "right": "Validar se o status do job é 'completed', 'failed' ou 'cancelled' antes de executar o hardDelete.",
+      "reason": "Excluir um job em processamento ('processing' ou 'pending') pode causar inconsistências na fila do Bull e erros de processamento em segundo plano.",
+      "severity": "high",
+      "relatedFiles": ["backend/src/controllers/jobController.ts"]
+    },
+    {
+      "wrong": "Realizar a contagem total de jobs sem aplicar os mesmos filtros da listagem.",
+      "right": "Garantir que a query de count() receba o mesmo objeto JobFilter que a query de listagem.",
+      "reason": "Sem os filtros, a paginação no frontend exibirá um número incorreto de páginas e resultados totais quando um filtro for aplicado.",
+      "severity": "medium",
+      "relatedFiles": ["backend/src/repositories/jobRepository.ts"]
+    }
+  ],
+  "discoveries": [
+    {
+      "category": "database",
+      "description": "O PostgreSQL com ON DELETE CASCADE nos logs de e-mail simplifica a limpeza de dados, mas exige cautela na exposição do endpoint de DELETE.",
+      "relevance": "medium"
+    },
+    {
+      "category": "frontend",
+      "description": "Mockar respostas de API no Playwright permite testar estados visuais (como Empty State) sem precisar manipular o banco de dados real.",
+      "relevance": "high"
+    }
+  ],
+  "patternsLearned": [
+    {
+      "name": "Dashboard Empty State Pattern",
+      "antiPattern": "Exibir uma tabela vazia ou spinner infinito quando não há dados.",
+      "pattern": "Exibir mensagem informativa, ícone descritivo e um botão de CTA (Call to Action) para a funcionalidade principal.",
+      "description": "Melhora o onboarding do usuário e reduz o abandono da página."
+    }
+  ]
+}

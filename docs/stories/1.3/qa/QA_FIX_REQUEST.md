@@ -47,7 +47,7 @@ As alterações devem ser commitadas seguindo o padrão do projeto, com mensagen
 **Verification:**
 - [ ] Executar `git log` e confirmar a presença de commits para a story 1.3.
 
-**Status:** [ ] Fixed
+**Status:** [x] Fixed
 
 ---
 
@@ -64,9 +64,9 @@ Arquivos novos (`backend/src/controllers/jobController.ts`, `backend/src/routes/
 Todos os arquivos da implementação devem estar rastreados (staged) e commitados.
 
 **Verification:**
-- [ ] Executar `git status` e confirmar que não há arquivos da story 1.3 como untracked.
+- [x] Executar `git status` e confirmar que não há arquivos da story 1.3 como untracked.
 
-**Status:** [ ] Fixed
+**Status:** [x] Fixed
 
 ---
 
@@ -83,9 +83,9 @@ A seção `File List` ou similar não documenta os arquivos criados ou alterados
 O arquivo da story deve listar todos os arquivos impactados.
 
 **Verification:**
-- [ ] Verificar se o arquivo `.md` da story contém a lista de arquivos atualizada.
+- [x] Verificar se o arquivo `.md` da story contém a lista de arquivos atualizada.
 
-**Status:** [ ] Fixed
+**Status:** [x] Fixed
 
 ---
 
@@ -102,9 +102,9 @@ O status da story no frontmatter do arquivo markdown ainda consta como `Todo`.
 O status deve ser atualizado para `Review` ou `Done` após a implementação.
 
 **Verification:**
-- [ ] Confirmar `status: "Done"` (ou similar) no cabeçalho do arquivo da story.
+- [x] Confirmar `status: "Done"` (ou similar) no cabeçalho do arquivo da story.
 
-**Status:** [ ] Fixed
+**Status:** [x] Fixed
 
 ---
 
@@ -121,9 +121,9 @@ Falta um teste de integração (ex: Playwright) para validar o comportamento do 
 Criação de um cenário de teste que valide a exibição da mensagem "Nenhum envio realizado ainda".
 
 **Verification:**
-- [ ] Executar teste Playwright que valide o Empty State.
+- [x] Executar teste Playwright que valide o Empty State.
 
-**Status:** [ ] Fixed
+**Status:** [x] Fixed
 
 ---
 

@@ -1,0 +1,115 @@
+{
+  "schema": "aiox-gotchas-v1",
+  "version": "1.0.0",
+  "generatedAt": "2026-04-21T18:41:56.504Z",
+  "statistics": {
+    "total": 3,
+    "bySeverity": {
+      "high": 1,
+      "medium": 2,
+      "low": 0
+    },
+    "byCategory": {
+      "API": 1,
+      "Database": 1,
+      "Other": 1
+    },
+    "insightsScanned": 1
+  },
+  "gotchas": [
+    {
+      "id": "gotcha-1.3-1e8884ca",
+      "title": "Excluir um job em processamento ('processing' ou 'pending...",
+      "category": "API",
+      "wrong": "Permitir a exclusão de qualquer job via API sem verificar o status.",
+      "right": "Validar se o status do job é 'completed', 'failed' ou 'cancelled' antes de executar o hardDelete.",
+      "reason": "Excluir um job em processamento ('processing' ou 'pending') pode causar inconsistências na fila do Bull e erros de processamento em segundo plano.",
+      "severity": "high",
+      "discoveredAt": "2026-04-21T18:45:00Z",
+      "storyId": "1.3",
+      "relatedFiles": [
+        "backend/src/controllers/jobController.ts"
+      ],
+      "tags": []
+    },
+    {
+      "id": "gotcha-1.3-498aaf55",
+      "title": "Sem os filtros, a paginação no frontend exibirá um número...",
+      "category": "Database",
+      "wrong": "Realizar a contagem total de jobs sem aplicar os mesmos filtros da listagem.",
+      "right": "Garantir que a query de count() receba o mesmo objeto JobFilter que a query de listagem.",
+      "reason": "Sem os filtros, a paginação no frontend exibirá um número incorreto de páginas e resultados totais quando um filtro for aplicado.",
+      "severity": "medium",
+      "discoveredAt": "2026-04-21T18:45:00Z",
+      "storyId": "1.3",
+      "relatedFiles": [
+        "backend/src/repositories/jobRepository.ts"
+      ],
+      "tags": []
+    },
+    {
+      "id": "gotcha-1.3-58e0cd2b",
+      "title": "Dashboard Empty State Pattern",
+      "category": "Other",
+      "wrong": "Exibir uma tabela vazia ou spinner infinito quando não há dados.",
+      "right": "Exibir mensagem informativa, ícone descritivo e um botão de CTA (Call to Action) para a funcionalidade principal.",
+      "reason": "Melhora o onboarding do usuário e reduz o abandono da página.",
+      "severity": "medium",
+      "discoveredAt": "2026-04-21T18:45:00Z",
+      "storyId": "1.3",
+      "relatedFiles": [],
+      "tags": []
+    }
+  ],
+  "categories": {
+    "API": [
+      {
+        "id": "gotcha-1.3-1e8884ca",
+        "title": "Excluir um job em processamento ('processing' ou 'pending...",
+        "category": "API",
+        "wrong": "Permitir a exclusão de qualquer job via API sem verificar o status.",
+        "right": "Validar se o status do job é 'completed', 'failed' ou 'cancelled' antes de executar o hardDelete.",
+        "reason": "Excluir um job em processamento ('processing' ou 'pending') pode causar inconsistências na fila do Bull e erros de processamento em segundo plano.",
+        "severity": "high",
+        "discoveredAt": "2026-04-21T18:45:00Z",
+        "storyId": "1.3",
+        "relatedFiles": [
+          "backend/src/controllers/jobController.ts"
+        ],
+        "tags": []
+      }
+    ],
+    "Database": [
+      {
+        "id": "gotcha-1.3-498aaf55",
+        "title": "Sem os filtros, a paginação no frontend exibirá um número...",
+        "category": "Database",
+        "wrong": "Realizar a contagem total de jobs sem aplicar os mesmos filtros da listagem.",
+        "right": "Garantir que a query de count() receba o mesmo objeto JobFilter que a query de listagem.",
+        "reason": "Sem os filtros, a paginação no frontend exibirá um número incorreto de páginas e resultados totais quando um filtro for aplicado.",
+        "severity": "medium",
+        "discoveredAt": "2026-04-21T18:45:00Z",
+        "storyId": "1.3",
+        "relatedFiles": [
+          "backend/src/repositories/jobRepository.ts"
+        ],
+        "tags": []
+      }
+    ],
+    "Other": [
+      {
+        "id": "gotcha-1.3-58e0cd2b",
+        "title": "Dashboard Empty State Pattern",
+        "category": "Other",
+        "wrong": "Exibir uma tabela vazia ou spinner infinito quando não há dados.",
+        "right": "Exibir mensagem informativa, ícone descritivo e um botão de CTA (Call to Action) para a funcionalidade principal.",
+        "reason": "Melhora o onboarding do usuário e reduz o abandono da página.",
+        "severity": "medium",
+        "discoveredAt": "2026-04-21T18:45:00Z",
+        "storyId": "1.3",
+        "relatedFiles": [],
+        "tags": []
+      }
+    ]
+  }
+}
