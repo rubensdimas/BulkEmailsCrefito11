@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { JobController } from './jobController';
-import { getJobRepository } from '../services/databaseService';
+import { getJobRepository, getEmailLogRepository } from '../services/databaseService';
 
 // Mock dependencies
 jest.mock('../services/databaseService');
@@ -15,6 +15,10 @@ describe('JobController', () => {
     count: jest.Mock;
     findById: jest.Mock;
     hardDelete: jest.Mock;
+    updateStatus: jest.Mock;
+  };
+  let emailLogRepoMock: {
+    getStatsByJobId: jest.Mock;
   };
 
   beforeEach(() => {
@@ -28,9 +32,15 @@ describe('JobController', () => {
       count: jest.fn(),
       findById: jest.fn(),
       hardDelete: jest.fn(),
+      updateStatus: jest.fn(),
+    };
+
+    emailLogRepoMock = {
+      getStatsByJobId: jest.fn(),
     };
 
     (getJobRepository as jest.Mock).mockReturnValue(jobRepoMock);
+    (getEmailLogRepository as jest.Mock).mockReturnValue(emailLogRepoMock);
   });
 
   afterEach(() => {
@@ -38,23 +48,57 @@ describe('JobController', () => {
   });
 
   describe('getJobs', () => {
-    it('should return paginated jobs', async () => {
-      const mockJobs = [{ id: '1', status: 'completed' }, { id: '2', status: 'pending' }];
+    it('should return paginated jobs with computed status', async () => {
+      const mockJobs = [
+        { id: '1', status: 'processing', valid_recipients: 10 },
+        { id: '2', status: 'pending', valid_recipients: 5 },
+      ];
       jobRepoMock.findAll.mockResolvedValue(mockJobs);
       jobRepoMock.count.mockResolvedValue(2);
+      emailLogRepoMock.getStatsByJobId.mockResolvedValue({
+        total_logs: 0, pending: 0, processing: 0, sent: 0, failed: 0, bounced: 0,
+      });
 
       req.query = { limit: '10', offset: '0' };
 
       await JobController.getJobs(req as Request, res as Response);
 
       expect(jobRepoMock.findAll).toHaveBeenCalledWith({ limit: 10, offset: 0 });
-      expect(jobRepoMock.count).toHaveBeenCalledWith({ limit: 10, offset: 0 });
+      expect(emailLogRepoMock.getStatsByJobId).toHaveBeenCalledTimes(2);
       expect(statusMock).toHaveBeenCalledWith(200);
-      expect(jsonMock).toHaveBeenCalledWith({
-        success: true,
-        data: mockJobs,
-        pagination: { total: 2, limit: 10, offset: 0, pages: 1 }
+    });
+
+    it('should compute status as completed when all emails are terminal', async () => {
+      const mockJobs = [
+        { id: '1', status: 'processing', valid_recipients: 5 },
+      ];
+      jobRepoMock.findAll.mockResolvedValue(mockJobs);
+      jobRepoMock.count.mockResolvedValue(1);
+      emailLogRepoMock.getStatsByJobId.mockResolvedValue({
+        total_logs: 5, pending: 0, processing: 0, sent: 4, failed: 1, bounced: 0,
       });
+
+      await JobController.getJobs(req as Request, res as Response);
+
+      const responseData = jsonMock.mock.calls[0][0];
+      expect(responseData.data[0].status).toBe('completed');
+      // Should also have auto-synced DB
+      expect(jobRepoMock.updateStatus).toHaveBeenCalledWith('1', 'completed');
+    });
+
+    it('should not sync when DB status already matches', async () => {
+      const mockJobs = [
+        { id: '1', status: 'completed', valid_recipients: 5 },
+      ];
+      jobRepoMock.findAll.mockResolvedValue(mockJobs);
+      jobRepoMock.count.mockResolvedValue(1);
+      emailLogRepoMock.getStatsByJobId.mockResolvedValue({
+        total_logs: 5, pending: 0, processing: 0, sent: 5, failed: 0, bounced: 0,
+      });
+
+      await JobController.getJobs(req as Request, res as Response);
+
+      expect(jobRepoMock.updateStatus).not.toHaveBeenCalled();
     });
 
     it('should apply status filter if provided', async () => {

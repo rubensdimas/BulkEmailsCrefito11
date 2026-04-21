@@ -1,12 +1,8 @@
-/**
- * Status Controller
- * GET /api/status/:jobId - Get job status and counters
- * Updated to use repositories for persistence
- */
 import { Request, Response, NextFunction } from 'express';
 import Bull from 'bull';
 import { getEmailQueue, getQueueStats, EmailJobData } from '../queue/emailQueue';
 import { getJobRepository, getEmailLogRepository, isDatabaseReady } from '../services/databaseService';
+import { computeJobStatus, shouldSyncStatus } from '../services/jobStatusService';
 
 interface BullJobLike {
   id: string | number;
@@ -73,37 +69,25 @@ export const getJobStatus = async (
 
         if (job) {
           const stats = await emailLogRepo.getStatsByJobId(job.id);
-          const total = job.valid_recipients;
-          
-          // Terminal states: sent, failed, bounced
-          const completedCount = stats.sent;
-          const terminalCount = completedCount + stats.failed + stats.bounced;
-          
-          const progress = total > 0 ? Math.round((terminalCount / total) * 100) : 0;
+          const computed = computeJobStatus(job, stats);
 
-          let status: JobStatusResponse['status'];
-          // Use terminalCount to determine if job is completed
-          if (job.status === 'completed' || (terminalCount >= total && total > 0)) {
-            status = 'completed';
-          } else if (job.status === 'failed') {
-            status = 'failed';
-          } else if (stats.processing > 0 || job.status === 'processing') {
-            status = 'processing';
-          } else {
-            status = 'pending';
+          // Auto-sync DB column if stale
+          const newStatus = shouldSyncStatus(job, computed);
+          if (newStatus) {
+            await jobRepo.updateStatus(job.id, newStatus);
           }
 
           res.status(200).json({
             success: true,
             jobId: job.id,
             campaignId: job.campaign_id,
-            status,
+            status: computed.status,
             total: job.valid_recipients,
-            completed: completedCount,
-            failed: stats.failed,
-            processing: stats.processing,
-            waiting: stats.pending,
-            progress: Math.min(progress, 100), // Cap at 100%
+            completed: computed.completedCount,
+            failed: computed.failedCount,
+            processing: computed.processingCount,
+            waiting: computed.waitingCount,
+            progress: computed.progress,
             timestamp: new Date().toISOString(),
             createdAt: job.created_at ? new Date(job.created_at).toISOString() : undefined,
             updatedAt: job.updated_at ? new Date(job.updated_at).toISOString() : undefined,
@@ -192,7 +176,7 @@ export const getJobStatus = async (
     // Calculate counts for campaign
     let completedCount = 0;
     let failedCount = 0;
-    let bouncedCount = 0;
+    const bouncedCount = 0;
     let processing = 0;
     let waitingCount = 0;
 

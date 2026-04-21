@@ -1,13 +1,14 @@
 import { Request, Response } from 'express';
-import { getJobRepository } from '../services/databaseService';
+import { getJobRepository, getEmailLogRepository } from '../services/databaseService';
 import { JobFilter, JobStatus } from '../models/Job';
+import { computeJobStatus, shouldSyncStatus } from '../services/jobStatusService';
 
 /**
  * Controller for managing Jobs
  */
 export class JobController {
   /**
-   * Get paginated list of jobs
+   * Get paginated list of jobs with dynamically computed status
    */
   static async getJobs(req: Request, res: Response): Promise<void> {
     try {
@@ -21,15 +22,37 @@ export class JobController {
       }
 
       const jobRepo = getJobRepository();
+      const emailLogRepo = getEmailLogRepository();
       
-      const [data, total] = await Promise.all([
+      const [jobs, total] = await Promise.all([
         jobRepo.findAll(filter),
         jobRepo.count(filter),
       ]);
 
+      // Compute real-time status for each job and auto-sync stale DB values
+      const enrichedJobs = await Promise.all(
+        jobs.map(async (job) => {
+          const stats = await emailLogRepo.getStatsByJobId(job.id);
+          const computed = computeJobStatus(job, stats);
+
+          // Auto-sync stale DB status
+          const newStatus = shouldSyncStatus(job, computed);
+          if (newStatus) {
+            await jobRepo.updateStatus(job.id, newStatus);
+          }
+
+          return {
+            ...job,
+            status: computed.status,
+            completed_count: computed.completedCount,
+            failed_count: computed.failedCount,
+          };
+        })
+      );
+
       res.status(200).json({
         success: true,
-        data,
+        data: enrichedJobs,
         pagination: {
           total,
           limit,
