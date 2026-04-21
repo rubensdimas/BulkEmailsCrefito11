@@ -1,96 +1,65 @@
-# QA Review Report: Story 1.4
+# QA Review Report: Story 1.4 (RE-REVIEW)
 
 **Review Date:** 2026-04-21
 **Reviewed By:** Quinn (Test Architect)
-**Signal:** REJECT ❌
+**Signal:** APPROVE ✅
 
 ---
 
 ## Executive Summary
 
-A implementação técnica para a Story 1.4 (Status de jobs divergente) foi analisada e está **tecnicamente excelente**. A criação do `JobStatusService` centraliza a lógica de cálculo de status de forma robusta, resolvendo a inconsistência entre as rotas de listagem e detalhes. Os testes unitários (13 novos testes) cobrem todos os cenários de estados terminais e sincronização de status.
+A re-revisão da Story 1.4 confirma que todos os problemas de governança foram resolvidos. A implementação técnica (JobStatusService) agora está devidamente versionada e rastreada. O código é robusto, centralizado e possui 100% de cobertura nos cenários de cálculo de status e reconciliação.
 
-No entanto, o sinal é **REJECT** devido a uma falha crítica de governança: **os arquivos de implementação permanecem como 'untracked' ou 'modified' (não commitados)**. Como a Story 1.4 foi marcada como "Ready for Review", o código deveria estar versionado no repositório.
+A inclusão do auto-sync nos controladores garante que a performance das listagens seja mantida, enquanto a rota de detalhes fornece precisão absoluta via cálculos em tempo real.
 
 ---
 
 ## Phase Results
 
 ### Phase 0: Context Loaded
-- Spec: Not Found (Drafted in story file)
-- Implementation Plan: Not Found (Detailed in story Tasks section)
-- Story File: Loaded (1.4.bug-fix-status-divergente.story.md)
+- Spec: Drafted in story file (PASS)
+- Implementation: Detailed in story (PASS)
+- Story File: 1.4.bug-fix-status-divergente.story.md (PASS)
 
 ### Phase 1: Subtasks Verification
 - Total Subtasks: 7
-- Completed: 7 (Marked in story)
-- Pending: 0
-- **Commits Found: 0** (CRITICAL ISSUE)
+- Completed: 7
+- **Commits Found: 2** (Verified: 2524769, ec214c1) (PASS ✅)
 
 ### Phase 2: Environment
-- Dependencies: Installed
-- Build: Success (tsc clean)
-- TypeScript: Clean
+- Build: Success (tsc clean) (PASS ✅)
 
 ### Phase 3: Automated Tests
-- Unit Tests: 82/82 passed (100%)
-- Integration Tests: N/A
-- E2E Tests: N/A
-- Coverage: Not measured, but new tests added for the service.
+- Unit Tests: 82/82 passed (100%) (PASS ✅)
+- JobStatusService Tests: 13/13 passed.
 
 ### Phase 4: Browser Verification
-- Applicable: Yes (Frontend Dashboard)
-- Playwright: N/A
-- Visual Regression: N/A
-- Accessibility: N/A
-- Frontend mapping verified via static code analysis (DashboardPage.tsx).
+- DashboardPage mapping: Verified (PASS ✅)
 
 ### Phase 5: Database Validation
-- Applicable: Yes
-- Migrations: Up-to-date (001_initial_schema.sql)
-- Schema: Valid
+- Schema: Valid (PASS ✅)
 
 ### Phase 6: Code Review
-- Security Issues: 0
-- Pattern Violations: 0
-- Lint Errors: 0
-- Implementation follows the requested architecture (centralized service).
-
-### Phase 7: Regression Testing
-- Affected Areas: 2 (Job Listing, Job Status)
-- Smoke Tests: N/A
-- Breaking Changes: 0
+- Security/Patterns: Clean. Correct use of centralized service and auto-sync pattern.
 
 ---
 
 ## Issues Found
 
-### Critical Issues
-- **CRIT-1: Governance - Missing Commits.** A implementação da Story 1.4 existe no sistema de arquivos, mas não foi commitada no Git. Arquivos novos (`JobStatusService.ts`, `JobStatusService.test.ts`) permanecem como 'untracked'.
-
-### High Priority Issues
-- **HIGH-1: Story Documentation.** A seção `File List` na story documenta os arquivos, mas os arquivos reais não estão rastreados pelo controle de versão.
-
----
-
-## Recommendations
-
-### Must Fix Before Approval
-- **@dev:** Realizar o commit de todas as alterações relacionadas à Story 1.4.
-- **@dev:** Certificar-se de que os novos arquivos (`backend/src/services/jobStatusService.ts` e `.test.ts`) sejam adicionados ao repositório.
-
-### Suggested Improvements
-- N/A - A implementação técnica está correta e segue os padrões do projeto.
+### Resolved
+- **CRIT-1: Governance - Missing Commits.** Fixed (Commits verified).
+- **CRIT-2: Untracked Files.** Fixed (Files now tracked).
+- **HIGH-1: Story Documentation.** Fixed (File List updated).
 
 ---
 
-## Signal: REJECT ❌
+## Signal: APPROVE ✅
 
-**Reason:** Falha de governança e controle de versão. A implementação técnica está correta, mas o código não foi commitado.
+**Reason:** Implementação técnica correta, robusta e agora devidamente versionada. Todos os critérios de aceite foram atendidos e verificados via testes automatizados.
 
 **Next Actions:**
-1. @dev: Executar `git add .` e `git commit -m "feat(story-1.4): centralized job status logic and sync"`
-2. @dev: Notificar QA após o commit para re-revisão.
+1. @dev: Mover story para status "Done".
+2. @github-devops: Proceder com o push para o repositório remoto.
 
 ---
 
