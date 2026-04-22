@@ -1,27 +1,29 @@
 {
   "schema": "aiox-gotchas-memory-v1",
   "version": "1.0.0",
-  "projectId": "BulkEmailsCrefito11",
-  "lastUpdated": "2026-04-21T19:33:17.327Z",
+  "projectId": "BulkEmailscrefito11",
+  "lastUpdated": "2026-04-22T00:42:27.002Z",
   "statistics": {
-    "totalGotchas": 4,
+    "totalGotchas": 8,
     "resolved": 0,
-    "unresolved": 4,
+    "unresolved": 8,
     "byCategory": {
       "API": 1,
       "Database": 1,
       "Other": 1,
-      "integration": 1
+      "integration": 1,
+      "general": 3,
+      "test": 1
     },
     "bySeverity": {
       "critical": 0,
-      "warning": 1,
+      "warning": 5,
       "info": 0,
       "high": 1,
       "medium": 2
     },
     "bySource": {
-      "manual": 1,
+      "manual": 5,
       "auto_detected": 0,
       "legacy": 3
     },
@@ -95,6 +97,109 @@
       "resolvedAt": null,
       "resolvedBy": null,
       "createdAt": "2026-04-21T19:31:54.815Z"
+    },
+    {
+      "id": "gotcha-1.5-mo9bvphj-wcb5lo",
+      "title": "Quill JS cleanup pode ter edge cases em componentes aninhados",
+      "description": " Quill.js faz cleanup automático ao desmontar o componente, mas em casos de componentes aninhados ou re-renders rápidos, o editor pode não ser removido corretamente causando memory leaks ou erros de 'Quill is not defined'.",
+      "category": "runtime",
+      "severity": "warning",
+      "workaround": "Garantir que o componente QuillEditor use React.useEffect cleanup return no useEffect para chamar quill?.destroy(), OU verificar que react-quill faz isso automaticamente (verificar documentação da versão instalada).",
+      "storyId": "1.5",
+      "relatedFiles": [
+        "frontend/src/components/QuillEditor/QuillEditor.tsx",
+        "frontend/src/components/EmailForm/EmailForm.tsx"
+      ],
+      "trigger": {
+        "errorPattern": "Quill is not defined"
+      },
+      "source": {
+        "type": "manual",
+        "occurrences": 1,
+        "firstSeen": "2026-04-22T00:42:16.903Z",
+        "lastSeen": "2026-04-22T00:42:16.903Z"
+      },
+      "resolved": false,
+      "resolvedAt": null,
+      "resolvedBy": null,
+      "createdAt": "2026-04-22T00:42:16.903Z"
+    },
+    {
+      "id": "gotcha-1.5-mo9bvryy-duxo2v",
+      "title": "E2E Tests devem usar .ql-editor selector ao invés de textarea para Quill",
+      "description": "Ao substituir textarea por QuillEditor, testes E2E que usam locator('textarea') vão falhar porque Quill usa .ql-editor como elemento editável.",
+      "category": "test",
+      "severity": "warning",
+      "workaround": "Atualizar todos os Selectors de testes de 'textarea' para '.ql-editor' com playwright locator: page.locator('.ql-editor').fill('texto')",
+      "storyId": "1.5",
+      "relatedFiles": [
+        "frontend/e2e/form-colors.spec.ts"
+      ],
+      "trigger": {
+        "errorPattern": "textarea"
+      },
+      "source": {
+        "type": "manual",
+        "occurrences": 1,
+        "firstSeen": "2026-04-22T00:42:20.121Z",
+        "lastSeen": "2026-04-22T00:42:20.121Z"
+      },
+      "resolved": false,
+      "resolvedAt": null,
+      "resolvedBy": null,
+      "createdAt": "2026-04-22T00:42:20.121Z"
+    },
+    {
+      "id": "gotcha-1.5-mo9bvve3-4sk1c3",
+      "title": "Campo Quill vazio pode enviar HTML vazio como <p><br></p>",
+      "description": "Quando o usuário deixa o campo Quill vazio (sem digitar nada), o valor do estado é '<p><br></p>' em vez de string vazia. Isso pode causar comportamento inesperado no backend ou emails com corpo vazio mas não completamente vazio.",
+      "category": "runtime",
+      "severity": "warning",
+      "workaround": "No hook useEmailSubmit ou no componente EmailForm, adicionar validação: if (!body || body === '<p><br></p>') return null/empty. O backend também deve validar html antes de enviar.",
+      "storyId": "1.5",
+      "relatedFiles": [
+        "frontend/src/components/EmailForm/EmailForm.tsx",
+        "frontend/src/hooks/useEmailSubmit.ts"
+      ],
+      "trigger": {
+        "errorPattern": "<p><br></p>"
+      },
+      "source": {
+        "type": "manual",
+        "occurrences": 1,
+        "firstSeen": "2026-04-22T00:42:24.554Z",
+        "lastSeen": "2026-04-22T00:42:24.554Z"
+      },
+      "resolved": false,
+      "resolvedAt": null,
+      "resolvedBy": null,
+      "createdAt": "2026-04-22T00:42:24.554Z"
+    },
+    {
+      "id": "gotcha-1.5-mo9bvxa2-46k9o7",
+      "title": "HTML malicioso em user input - sanitização no backend",
+      "description": "O HTML enviado pelo usuário através do QuillEditor pode conter scripts maliciosos (XSS), iframes, ou código berbahaya. O frontend confia no input do usuário e o backend deve sanitizar antes de enviar via SMTP.",
+      "category": "security",
+      "severity": "critical",
+      "workaround": "No backend, usar biblioteca como 'sanitize-html' ou 'dompurify' para limpar tags dangerous: script, iframe, object, embed, link (com javascript:), event handlers (onclick, onerror, etc). whitelist de tags seguras: p, br, strong, b, em, i, u, a (somente http/https), ul, ol, li, h1-h6, blockquote, pre, code.",
+      "storyId": "1.5",
+      "relatedFiles": [
+        "backend/src/services/emailService.ts",
+        "backend/src/controllers/emailController.ts"
+      ],
+      "trigger": {
+        "errorPattern": "<script"
+      },
+      "source": {
+        "type": "manual",
+        "occurrences": 1,
+        "firstSeen": "2026-04-22T00:42:27.001Z",
+        "lastSeen": "2026-04-22T00:42:27.001Z"
+      },
+      "resolved": false,
+      "resolvedAt": null,
+      "resolvedBy": null,
+      "createdAt": "2026-04-22T00:42:27.001Z"
     }
   ]
 }
