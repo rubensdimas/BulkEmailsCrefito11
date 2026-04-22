@@ -9,6 +9,7 @@ export interface UploadResult {
 export interface SendEmailData {
   emails: string[];
   subject: string;
+  /** HTML body content (from QuillEditor) */
   body: string;
 }
 

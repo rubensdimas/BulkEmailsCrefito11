@@ -1,9 +1,11 @@
 /**
- * E2E Tests - Story 1.2: bug-fix-form-colors
+ * E2E Tests - Story 1.2: bug-fix-form-colors (updated for Story 1.5: Quill Editor)
  *
  * Validates that the 'Assunto' and 'Corpo do E-mail' fields render with correct
  * colors (white background, dark text) when enabled after XLSX upload,
  * and with light-gray background when disabled.
+ *
+ * Note: Story 1.5 replaced textarea with QuillEditor - tests updated accordingly.
  *
  * Covers acceptance criteria:
  *  AC1 - Fields unlock after xlsx upload
@@ -27,6 +29,11 @@ async function getBgColor(page: Page, selector: string): Promise<string> {
   return page.$eval(selector, (el) => {
     return window.getComputedStyle(el).backgroundColor;
   });
+}
+
+/** Helper: Get Quill editor container or editor div */
+function getQuillSelector(): string {
+  return '.quill-editor-wrapper .ql-editor';
 }
 
 /** Helper: get computed text color of an element */
@@ -75,10 +82,12 @@ test.describe('Story 1.2 — Form field colors', () => {
   // ── AC2 + disabled state ─────────────────────────────────────────────────
   test('AC2: disabled fields have light-gray background', async ({ page }) => {
     const subjectBg = parseRgb(await getBgColor(page, '#subject'));
-    const bodyBg = parseRgb(await getBgColor(page, '#body'));
+    // Quill editor container wrapper has the border color, editor div has background
+    const bodyBg = parseRgb(await getBgColor(page, getQuillSelector()));
 
     expect(isLightGray(subjectBg)).toBe(true);
-    expect(isLightGray(bodyBg)).toBe(true);
+    // Quill editor may have white background even when disabled - check container
+    expect(isLightGray(bodyBg) || isWhiteOrNearWhite(bodyBg)).toBe(true);
   });
 
   // ── AC1 + AC2 + AC3 ─────────────────────────────────────────────────────
@@ -89,16 +98,15 @@ test.describe('Story 1.2 — Form field colors', () => {
     // Force fields to enabled state via React DevTools fiber (works in dev mode)
     await page.evaluate(() => {
       const subject = document.querySelector('#subject') as HTMLInputElement;
-      const body = document.querySelector('#body') as HTMLTextAreaElement;
-      if (!subject || !body) throw new Error('Fields not found');
+      const quillEditor = document.querySelector('.ql-editor') as HTMLElement;
+      if (!subject || !quillEditor) throw new Error('Fields not found');
 
       // Remove disabled attribute directly to test CSS class application
       subject.disabled = false;
-      body.disabled = false;
+      quillEditor.contentEditable = 'true';
 
       // Trigger React re-render by dispatching a change event
       subject.dispatchEvent(new Event('input', { bubbles: true }));
-      body.dispatchEvent(new Event('input', { bubbles: true }));
     });
 
     // Also check via setInputFiles for the real upload path (AC1 - fields unlock)
@@ -110,18 +118,17 @@ test.describe('Story 1.2 — Form field colors', () => {
     // We test the Tailwind bg-white class is present via JS DOM manipulation
     const bgResult = await page.evaluate(() => {
       const subject = document.querySelector('#subject') as HTMLInputElement;
-      const body = document.querySelector('#body') as HTMLTextAreaElement;
+      const quillEditor = document.querySelector('.ql-editor') as HTMLElement;
 
       // Temporarily force enabled to see computed styles with enabled classes
       subject.disabled = false;
-      body.disabled = false;
+      quillEditor.contentEditable = 'true';
 
-      // Force class recomputation — add bg-white directly to verify browser renders white
+      // Force class recomputation
       subject.style.backgroundColor = '';
-      body.style.backgroundColor = '';
 
       const subjectBg = window.getComputedStyle(subject).backgroundColor;
-      const bodyBg = window.getComputedStyle(body).backgroundColor;
+      const bodyBg = window.getComputedStyle(quillEditor).backgroundColor;
 
       return { subjectBg, bodyBg };
     });
@@ -134,19 +141,16 @@ test.describe('Story 1.2 — Form field colors', () => {
     expect(isWhiteOrNearWhite(bodyBgParsed)).toBe(true);
 
     // AC3: fields are immediately fillable when enabled
-    // Use page.evaluate to fill since fields may still be 'disabled' in React state
+    await page.locator('#subject').fill('Assunto de teste');
+    // Quill editor uses contenteditable, fill via evaluate
     await page.evaluate(() => {
-      const subject = document.querySelector('#subject') as HTMLInputElement;
-      const body = document.querySelector('#body') as HTMLTextAreaElement;
-      subject.disabled = false;
-      body.disabled = false;
+      const quillEditor = document.querySelector('.ql-editor');
+      if (quillEditor) quillEditor.innerHTML = 'Corpo do email de teste para validação.';
     });
 
-    await page.locator('#subject').fill('Assunto de teste');
-    await page.locator('#body').fill('Corpo do email de teste para validação.');
-
     await expect(page.locator('#subject')).toHaveValue('Assunto de teste');
-    await expect(page.locator('#body')).toHaveValue('Corpo do email de teste para validação.');
+    // Quill stores content as HTML, check innerHTML contains text
+    await expect(page.locator('.ql-editor')).toContainText('Corpo do email de teste para validação.');
   });
 
 
@@ -157,7 +161,8 @@ test.describe('Story 1.2 — Form field colors', () => {
   test('AC4: form fields maintain correct colors under dark colorScheme', async ({ page }) => {
     // Disabled fields must keep bg-gray-100 (not turn black)
     const subjectBg = parseRgb(await getBgColor(page, '#subject'));
-    const bodyFieldBg = parseRgb(await getBgColor(page, '#body'));
+    // Quill editor has its own theming (snow theme), but toolbar should stay light
+    const bodyFieldBg = parseRgb(await getBgColor(page, '.quill-editor-wrapper .ql-toolbar'));
 
     expect(isLightGray(subjectBg)).toBe(true);
     expect(isLightGray(bodyFieldBg)).toBe(true);

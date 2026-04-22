@@ -1,5 +1,6 @@
 import { useState, FormEvent } from 'react';
 import clsx from 'clsx';
+import { QuillEditor } from '../QuillEditor';
 
 interface EmailFormProps {
   onSubmit: (subject: string, body: string) => void;
@@ -88,32 +89,29 @@ export function EmailForm({ onSubmit, disabled = false, isLoading = false, email
         <p className="mt-1 text-xs text-gray-500">{subject.length}/200 caracteres</p>
       </div>
 
-      {/* Body field */}
+      {/* Body field - Quill Editor */}
       <div>
         <label htmlFor="body" className="block text-sm font-medium text-gray-700 mb-2">
           Corpo do Email <span className="text-red-500">*</span>
         </label>
-        <textarea
-          id="body"
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-          disabled={disabled || isLoading}
-          placeholder="Digite o conteúdo do email..."
-          rows={8}
-          className={clsx(
-            'w-full px-4 py-3 rounded-lg border transition-colors resize-y',
-            'focus:ring-2 focus:ring-primary-500 focus:border-primary-500',
-            'placeholder:text-gray-400',
-            errors.body ? 'border-red-500 focus:ring-red-500' : 'border-gray-300',
-            disabled
-              ? 'bg-gray-100 text-gray-500 cursor-not-allowed'
-              : 'bg-white text-gray-900'
-          )}
-        />
+        <div className={clsx(
+          'rounded-lg border transition-colors',
+          errors.body ? 'border-red-500' : 'border-gray-300',
+          disabled ? 'opacity-60' : ''
+        )}>
+          <QuillEditor
+            value={body}
+            onChange={setBody}
+            disabled={disabled || isLoading}
+            placeholder="Digite o conteúdo do email..."
+          />
+        </div>
         {errors.body && (
           <p className="mt-1 text-sm text-red-600">{errors.body}</p>
         )}
-        <p className="mt-1 text-xs text-gray-500">{body.length} caracteres</p>
+        <p className="mt-1 text-xs text-gray-500">
+          {body.replace(/<[^>]*>/g, '').length} caracteres (sem tags HTML)
+        </p>
       </div>
 
       {/* Submit button */}
