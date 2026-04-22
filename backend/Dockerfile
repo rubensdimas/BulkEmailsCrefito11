@@ -18,6 +18,9 @@ RUN npm run build
 # Stage 2: Production
 FROM node:18-alpine AS production
 
+# Install su-exec
+RUN apk add --no-cache su-exec
+
 WORKDIR /app
 
 # Create non-root user for security
@@ -29,8 +32,8 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./
 
-# Copy uploads directory (owned by root initially)
-RUN mkdir -p uploads
+# Copy uploads directory
+RUN mkdir -p uploads && chown nodejs:nodejs uploads
 
 # Copy entrypoint script
 COPY docker-entrypoint.sh /docker-entrypoint.sh
@@ -40,14 +43,11 @@ RUN chmod +x /docker-entrypoint.sh
 ENV NODE_ENV=production
 ENV UPLOAD_DIR=/app/uploads
 
-# Switch to non-root user
-USER nodejs
-
 # Expose port
 EXPOSE 3000
 
 # Use entrypoint to fix permissions before starting
 ENTRYPOINT ["/docker-entrypoint.sh"]
 
-# Start application
+# Start application (executed via entrypoint as su-exec nodejs)
 CMD ["node", "dist/app.js"]
