@@ -1,0 +1,68 @@
+{
+  "sessionType": "workflow",
+  "commandHistory": [
+    {
+      "command": "bash",
+      "agent": "opencode-agent",
+      "timestamp": 1776884464950,
+      "success": true
+    },
+    {
+      "command": "bash",
+      "agent": "opencode-agent",
+      "timestamp": 1776884477868,
+      "success": true
+    },
+    {
+      "command": "bash",
+      "agent": "opencode-agent",
+      "timestamp": 1776884479924,
+      "success": true
+    },
+    {
+      "command": "bash",
+      "agent": "opencode-agent",
+      "timestamp": 1776884482199,
+      "success": true
+    },
+    {
+      "command": "bash",
+      "agent": "opencode-agent",
+      "timestamp": 1776884425425,
+      "success": true
+    },
+    {
+      "command": "bash",
+      "agent": "opencode-agent",
+      "timestamp": 1776884437089,
+      "success": true
+    },
+    {
+      "command": "bash",
+      "agent": "opencode-agent",
+      "timestamp": 1776884439376,
+      "success": true
+    },
+    {
+      "command": "read",
+      "agent": "opencode-agent",
+      "timestamp": 1776884449254,
+      "success": true
+    },
+    {
+      "command": "bash",
+      "agent": "opencode-agent",
+      "timestamp": 1776884451980,
+      "success": true
+    },
+    {
+      "command": "glob",
+      "agent": "opencode-agent",
+      "timestamp": 1776884461545,
+      "success": true
+    }
+  ],
+  "createdAt": 1776883718263,
+  "lastUpdated": 1776884461545,
+  "currentAgent": "opencode-agent"
+}
