@@ -1,6 +1,6 @@
 {
   "project": "BulkEmailsCrefito11",
-  "mappedAt": "2026-04-21T19:36:45.478Z",
+  "mappedAt": "2026-04-22T19:22:26.764Z",
   "version": "1.0",
   "structure": {
     "type": "directory",
@@ -9,16 +9,17 @@
       ".env.example",
       ".gitignore",
       "AGENTS.md",
-      "docker-compose.yml",
-      "README.md"
+      "README.md",
+      "docker-compose.yml"
     ],
     "children": {
       "backend": {
         "type": "directory",
         "files": [
+          ".dockerignore",
           ".eslintrc.json",
-          "docker-entrypoint.sh",
           "Dockerfile",
+          "docker-entrypoint.sh",
           "jest.config.js",
           "knexfile.ts",
           "package-lock.json",
@@ -128,22 +129,16 @@
         "type": "directory",
         "purpose": "Documentation",
         "children": {
-          "context": {
-            "type": "directory"
-          },
-          "plans": {
-            "type": "directory"
-          },
-          "prd": {
-            "type": "directory"
-          },
           "stories": {
             "type": "directory",
             "files": [
               "1.1.bug-fix-progresso-email.story.md",
               "1.2.bug-fix-form-colors.story.md",
               "1.3.dashboard-listagem-jobs.story.md",
-              "1.4.bug-fix-status-divergente.story.md"
+              "1.4.bug-fix-status-divergente.story.md",
+              "1.5.feature-quill-js-email-body.story.md",
+              "1.6.feat-opencode-aiox-core-hooks.story.md",
+              "2.1.bug-fix-upload-permission.story.md"
             ],
             "children": {
               "1.1": {
@@ -192,6 +187,7 @@
       "frontend": {
         "type": "directory",
         "files": [
+          ".dockerignore",
           ".eslintrc.json",
           "Dockerfile",
           "index.html",
@@ -228,10 +224,6 @@
               "index.html"
             ]
           },
-          "public": {
-            "type": "directory",
-            "purpose": "Static assets"
-          },
           "src": {
             "type": "directory",
             "purpose": "Application source code",
@@ -251,6 +243,10 @@
                     "truncated": true
                   },
                   "FileUpload": {
+                    "type": "directory",
+                    "truncated": true
+                  },
+                  "QuillEditor": {
                     "type": "directory",
                     "truncated": true
                   },
@@ -308,40 +304,40 @@
     {
       "name": "dist",
       "type": "backend",
-      "directory": "backend\\dist",
+      "directory": "backend/dist",
       "entrypoint": null,
       "dependencies": []
     },
     {
       "name": "jest.config",
       "type": "backend",
-      "entrypoint": "backend\\jest.config.js",
+      "entrypoint": "backend/jest.config.js",
       "dependencies": []
     },
     {
       "name": "knexfile",
       "type": "backend",
-      "entrypoint": "backend\\knexfile.ts",
+      "entrypoint": "backend/knexfile.ts",
       "dependencies": []
     },
     {
       "name": "node_modules",
       "type": "backend",
-      "directory": "backend\\node_modules",
+      "directory": "backend/node_modules",
       "entrypoint": null,
       "dependencies": []
     },
     {
       "name": "src",
       "type": "backend",
-      "directory": "backend\\src",
+      "directory": "backend/src",
       "entrypoint": null,
       "dependencies": []
     },
     {
       "name": "uploads",
       "type": "backend",
-      "directory": "backend\\uploads",
+      "directory": "backend/uploads",
       "entrypoint": null,
       "dependencies": []
     }
@@ -354,7 +350,7 @@
   },
   "conventions": {
     "fileNaming": "camelCase (44 files)",
-    "componentNaming": "PascalCase",
+    "componentNaming": "mostly PascalCase",
     "imports": "relative paths",
     "exports": "named exports preferred",
     "indentation": null,
@@ -367,10 +363,10 @@
     "dev": []
   },
   "stats": {
-    "totalFiles": 101,
-    "codeFiles": 57,
+    "totalFiles": 108,
+    "codeFiles": 59,
     "testFiles": 9,
-    "components": 8,
+    "components": 10,
     "configFiles": 10
   },
   "configFiles": [
@@ -380,19 +376,19 @@
     },
     {
       "name": "Dockerfile",
-      "path": "backend\\Dockerfile"
+      "path": "backend/Dockerfile"
     },
     {
       "name": "jest.config.js",
-      "path": "backend\\jest.config.js"
+      "path": "backend/jest.config.js"
     },
     {
       "name": "package.json",
-      "path": "backend\\package.json"
+      "path": "backend/package.json"
     },
     {
       "name": "tsconfig.json",
-      "path": "backend\\tsconfig.json"
+      "path": "backend/tsconfig.json"
     },
     {
       "name": "docker-compose.yml",
@@ -400,19 +396,19 @@
     },
     {
       "name": "Dockerfile",
-      "path": "frontend\\Dockerfile"
+      "path": "frontend/Dockerfile"
     },
     {
       "name": "package.json",
-      "path": "frontend\\package.json"
+      "path": "frontend/package.json"
     },
     {
       "name": "tsconfig.json",
-      "path": "frontend\\tsconfig.json"
+      "path": "frontend/tsconfig.json"
     },
     {
       "name": "vite.config.ts",
-      "path": "frontend\\vite.config.ts"
+      "path": "frontend/vite.config.ts"
     }
   ]
 }
