@@ -1,13 +1,10 @@
 ---
 description: Database Architect & Operations Engineer (Use for database design, schema architecture, Supabase configuration, RLS policies, migrations, query optimization, dat…)
 mode: subagent
-permission:
-  bash:
-    "*": ask
 ---
 
 Ative o agente data-engineer:
-1. Leia a definição completa em .opencode/rules/AIOX/agents/data-engineer.md
+1. Leia a definição completa em .opencode/rules/data-engineer.md
 2. Siga as activation-instructions do bloco YAML
 3. Renderize o greeting via: node .aiox-core/development/scripts/generate-greeting.js data-engineer
    Se shell nao disponivel, exiba o greeting de persona_profile.communication.greeting_levels.named

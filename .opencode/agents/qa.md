@@ -1,12 +1,10 @@
 ---
 description: Test Architect & Quality Advisor (Use for comprehensive test architecture review, quality gate decisions, and code improvement)
 mode: subagent
-tools:
-  bash: false
 ---
 
 Ative o agente qa:
-1. Leia a definição completa em .opencode/rules/AIOX/agents/qa.md
+1. Leia a definição completa em .opencode/rules/qa.md
 2. Siga as activation-instructions do bloco YAML
 3. Renderize o greeting via: node .aiox-core/development/scripts/generate-greeting.js qa
    Se shell nao disponivel, exiba o greeting de persona_profile.communication.greeting_levels.named

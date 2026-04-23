@@ -4,48 +4,6 @@
     {
       "command": "bash",
       "agent": "opencode-agent",
-      "timestamp": 1776885129033,
-      "success": true
-    },
-    {
-      "command": "bash",
-      "agent": "opencode-agent",
-      "timestamp": 1776885132654,
-      "success": true
-    },
-    {
-      "command": "bash",
-      "agent": "opencode-agent",
-      "timestamp": 1776885134378,
-      "success": true
-    },
-    {
-      "command": "bash",
-      "agent": "opencode-agent",
-      "timestamp": 1776885136058,
-      "success": true
-    },
-    {
-      "command": "bash",
-      "agent": "opencode-agent",
-      "timestamp": 1776885137700,
-      "success": true
-    },
-    {
-      "command": "bash",
-      "agent": "opencode-agent",
-      "timestamp": 1776885139394,
-      "success": true
-    },
-    {
-      "command": "bash",
-      "agent": "opencode-agent",
-      "timestamp": 1776885140997,
-      "success": true
-    },
-    {
-      "command": "bash",
-      "agent": "opencode-agent",
       "timestamp": 1776885142827,
       "success": true
     },
@@ -60,9 +18,51 @@
       "agent": "opencode-agent",
       "timestamp": 1776885156336,
       "success": true
+    },
+    {
+      "command": "glob",
+      "agent": "opencode-agent",
+      "timestamp": 1776953077293,
+      "success": true
+    },
+    {
+      "command": "bash",
+      "agent": "opencode-agent",
+      "timestamp": 1776953101762,
+      "success": true
+    },
+    {
+      "command": "bash",
+      "agent": "opencode-agent",
+      "timestamp": 1776953116420,
+      "success": true
+    },
+    {
+      "command": "bash",
+      "agent": "opencode-agent",
+      "timestamp": 1776953134563,
+      "success": true
+    },
+    {
+      "command": "task",
+      "agent": "opencode-agent",
+      "timestamp": 1776953135632,
+      "success": true
+    },
+    {
+      "command": "glob",
+      "agent": "opencode-agent",
+      "timestamp": 1776953612256,
+      "success": true
+    },
+    {
+      "command": "task",
+      "agent": "opencode-agent",
+      "timestamp": 1776953617598,
+      "success": true
     }
   ],
   "createdAt": 1776883718263,
-  "lastUpdated": 1776885156336,
+  "lastUpdated": 1776953617598,
   "currentAgent": "opencode-agent"
 }

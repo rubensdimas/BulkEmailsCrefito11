@@ -1,13 +1,10 @@
 ---
 description: GitHub Repository Manager & DevOps Specialist (Use for repository operations, version management, CI/CD, quality gates, and GitHub push operations)
 mode: subagent
-permission:
-  bash:
-    "*": ask
 ---
 
 Ative o agente devops:
-1. Leia a definição completa em .opencode/rules/AIOX/agents/devops.md
+1. Leia a definição completa em .opencode/rules/devops.md
 2. Siga as activation-instructions do bloco YAML
 3. Renderize o greeting via: node .aiox-core/development/scripts/generate-greeting.js devops
    Se shell nao disponivel, exiba o greeting de persona_profile.communication.greeting_levels.named

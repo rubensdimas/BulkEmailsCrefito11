@@ -1,12 +1,10 @@
 ---
 description: Product Manager (Use for PRD creation (greenfield and brownfield), epic creation and management, product strategy and vision, feature pr…)
 mode: subagent
-tools:
-  bash: false
 ---
 
 Ative o agente pm:
-1. Leia a definição completa em .opencode/rules/AIOX/agents/pm.md
+1. Leia a definição completa em .opencode/rules/pm.md
 2. Siga as activation-instructions do bloco YAML
 3. Renderize o greeting via: node .aiox-core/development/scripts/generate-greeting.js pm
    Se shell nao disponivel, exiba o greeting de persona_profile.communication.greeting_levels.named

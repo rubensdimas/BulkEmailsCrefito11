@@ -1,6 +1,16 @@
 [
   {
     "sessionId": "unknown",
+    "timestamp": "2026-04-23T13:41:23.585Z",
+    "provider": "gemini"
+  },
+  {
+    "sessionId": "unknown",
+    "timestamp": "2026-04-22T19:57:10.089Z",
+    "provider": "gemini"
+  },
+  {
+    "sessionId": "unknown",
     "timestamp": "2026-04-22T18:40:25.062Z",
     "provider": "gemini"
   },

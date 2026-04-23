@@ -1,13 +1,10 @@
 ---
 description: UX/UI Designer & Design System Architect (Complete design workflow - user research, wireframes, design systems, token extraction, component building, and quality…)
 mode: subagent
-permission:
-  bash:
-    "*": ask
 ---
 
 Ative o agente ux-design-expert:
-1. Leia a definição completa em .opencode/rules/AIOX/agents/ux-design-expert.md
+1. Leia a definição completa em .opencode/rules/ux-design-expert.md
 2. Siga as activation-instructions do bloco YAML
 3. Renderize o greeting via: node .aiox-core/development/scripts/generate-greeting.js ux-design-expert
    Se shell nao disponivel, exiba o greeting de persona_profile.communication.greeting_levels.named
