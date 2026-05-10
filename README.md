@@ -33,6 +33,24 @@ docker-compose up -d
 # - Health: http://localhost:3000/api/health
 ```
 
+## Troubleshooting (Docker)
+
+### Migrations não executaram ou Tabelas não criadas
+Se ao subir os containers as tabelas não forem criadas automaticamente, você pode executar as migrações manualmente dentro do container do backend:
+
+```bash
+# Executar migrations manualmente
+docker exec -it bulkmail-backend npm run migrate
+
+# Verificar logs para erros específicos
+docker logs bulkmail-backend
+```
+
+**Causas Comuns:**
+- O banco Postgres demorou mais que o esperado para aceitar conexões (o backend tentou migrar antes da prontidão total).
+- Erro de permissão no volume do Postgres.
+- Credenciais no `.env` divergentes das configuradas no `docker-compose.yml`.
+
 ### Sem Docker
 
 #### Backend
