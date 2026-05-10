@@ -46,8 +46,8 @@ ENV UPLOAD_DIR=/app/uploads
 # Expose port
 EXPOSE 3000
 
-# Use entrypoint to fix permissions before starting
-ENTRYPOINT ["/docker-entrypoint.sh"]
+# Use sh to execute the entrypoint to be more resilient to CRLF issues
+ENTRYPOINT ["sh", "/docker-entrypoint.sh"]
 
 # Start application (executed via entrypoint as su-exec nodejs)
 CMD ["node", "dist/app.js"]
