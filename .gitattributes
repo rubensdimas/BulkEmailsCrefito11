@@ -1,0 +1,10 @@
+# Git settings to handle line endings across Windows and Linux
+* text=auto eol=lf
+*.bat eol=crlf
+*.ps1 eol=crlf
+*.sh eol=lf
+docker-entrypoint.sh eol=lf
+nginx.conf eol=lf
+.env* eol=lf
+package.json eol=lf
+package-lock.json eol=lf
