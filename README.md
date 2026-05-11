@@ -43,33 +43,23 @@ docker-compose up -d
 docker compose logs -f backend
 ```
 
-## Banco de Dados e Migrações
+## Troubleshooting (Docker)
 
-O projeto utiliza **Knex.js** para gerenciamento de banco de dados.
-
-### Migrações Automáticas
-Ao subir o ambiente via Docker Compose, o serviço `backend` aguarda o `postgres` estar pronto e executa automaticamente:
-`npm run migrate` (que mapeia para `knex migrate:latest`).
-
-### Migrações Manuais (via Docker)
-Se precisar rodar migrações manualmente ou fazer rollback:
+### Migrations não executaram ou Tabelas não criadas
+Se ao subir os containers as tabelas não forem criadas automaticamente, você pode executar as migrações manualmente dentro do container do backend:
 
 ```bash
-# Rodar migrações pendentes
-docker compose exec backend npm run migrate
+# Executar migrations manualmente
+docker exec -it bulkmail-backend npm run migrate
 
-# Rollback da última migração
-docker compose exec backend npm run migrate:rollback
-
-# Ver status das migrações
-docker compose exec backend npx knex migrate:status --knexfile knexfile.ts
+# Verificar logs para erros específicos
+docker logs bulkmail-backend
 ```
 
-### Criar Nova Migração
-```bash
-docker compose exec backend npx knex migrate:make nome_da_migracao -x ts
-```
-As migrações são salvas em `backend/src/migrations`.
+**Causas Comuns:**
+- O banco Postgres demorou mais que o esperado para aceitar conexões (o backend tentou migrar antes da prontidão total).
+- Erro de permissão no volume do Postgres.
+- Credenciais no `.env` divergentes das configuradas no `docker-compose.yml`.
 
 ### Sem Docker
 
