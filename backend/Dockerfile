@@ -18,8 +18,8 @@ RUN npm run build
 # Stage 2: Production
 FROM node:18-alpine AS production
 
-# Install su-exec
-RUN apk add --no-cache su-exec
+# Install su-exec and postgresql-client
+RUN apk add --no-cache su-exec postgresql-client
 
 WORKDIR /app
 
@@ -27,10 +27,12 @@ WORKDIR /app
 RUN addgroup -g 1001 -S nodejs && \
     adduser -S nodejs -u 1001
 
-# Copy built artifacts
+# Copy built artifacts and necessary config
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./
+COPY --from=builder /app/knexfile.ts ./
+COPY --from=builder /app/src/migrations ./src/migrations
 
 # Copy uploads directory
 RUN mkdir -p uploads && chown nodejs:nodejs uploads

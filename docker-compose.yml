@@ -71,7 +71,13 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    command: sh -c "npm run migrate && npm run dev"
+    command: >
+      sh -c "echo 'Waiting for database...' && 
+             until pg_isready -h postgres -p 5432 -U ${POSTGRES_USER:-bulkmail}; do sleep 1; done && 
+             echo 'Running migrations...' && 
+             npm run migrate && 
+             echo 'Starting application...' && 
+             npm run dev"
 
   # Frontend
   frontend:

@@ -126,7 +126,42 @@ export interface PaginatedResponse<T> {
   };
 }
 
+export interface SmtpConfig {
+  host: string;
+  port: number;
+  user: string;
+  pass: string;
+  secure: boolean;
+  from_address: string;
+  from_name: string;
+}
+
+export interface ConfigResponse<T> {
+  success: boolean;
+  data: T;
+  message?: string;
+  error?: string;
+}
+
 // ============= API Functions =============
+
+// Get SMTP configuration
+export const getSmtpConfig = async (): Promise<ConfigResponse<SmtpConfig>> => {
+  const response = await api.get<ConfigResponse<SmtpConfig>>('/config/smtp');
+  return response.data;
+};
+
+// Update SMTP configuration
+export const updateSmtpConfig = async (config: SmtpConfig): Promise<ConfigResponse<null>> => {
+  const response = await api.post<ConfigResponse<null>>('/config/smtp', config);
+  return response.data;
+};
+
+// Test SMTP configuration
+export const testSmtpConfig = async (config: SmtpConfig, to: string): Promise<ConfigResponse<null>> => {
+  const response = await api.post<ConfigResponse<null>>('/config/smtp/test', { config, to });
+  return response.data;
+};
 
 // Upload XLSX file
 export const uploadFile = async (file: File): Promise<UploadResponse> => {
