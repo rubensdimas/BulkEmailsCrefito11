@@ -15,10 +15,15 @@ import {
   EmailLogRepository,
   createEmailLogRepository,
 } from "../repositories/emailLogRepository";
+import {
+  ConfigService,
+  createConfigService,
+} from "./configService";
 
 // Singleton instances
 let jobRepository: JobRepository | null = null;
 let emailLogRepository: EmailLogRepository | null = null;
+let configService: ConfigService | null = null;
 
 /**
  * Initialize database and repositories
@@ -28,6 +33,7 @@ export const initializeDatabase = async (): Promise<void> => {
     const db = await initDatabase();
     jobRepository = createJobRepository(db);
     emailLogRepository = createEmailLogRepository(db);
+    configService = createConfigService(db);
     console.log("✅ Database and repositories initialized");
   } catch (error) {
     console.error("❌ Failed to initialize database:", error);
@@ -60,10 +66,22 @@ export const getEmailLogRepository = (): EmailLogRepository => {
 };
 
 /**
+ * Get ConfigService instance
+ */
+export const getConfigService = (): ConfigService => {
+  if (!configService) {
+    throw new Error(
+      "Database not initialized. Call initializeDatabase() first.",
+    );
+  }
+  return configService;
+};
+
+/**
  * Check if database is ready
  */
 export const isDatabaseReady = (): boolean => {
-  return jobRepository !== null && emailLogRepository !== null;
+  return jobRepository !== null && emailLogRepository !== null && configService !== null;
 };
 
 /**

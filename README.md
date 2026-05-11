@@ -18,6 +18,17 @@ Sistema de envio de emails em massa via planilha XLSX com filas de processamento
 4. **Filas com Throttling** - Taxa configurável (10-500 emails/min)
 5. **Retry Automático** - Máximo 3 tentativas em caso de falha
 6. **Dashboard em Tempo Real** - Acompanhamento de status
+7. **Configuração Dinâmica de SMTP** - Altere as credenciais de envio via interface web sem precisar reiniciar o sistema.
+
+## Configuração de SMTP
+
+O sistema suporta duas formas de configuração de SMTP:
+
+1. **Variáveis de Ambiente**: Definidas no arquivo `.env` (fallback).
+2. **Interface Web**: Acesse a página de "Configurações" para salvar as credenciais no banco de dados. As configurações no banco de dados têm prioridade sobre o `.env`.
+
+### Teste de Conexão
+Na página de configurações, você pode enviar um e-mail de teste para validar se as credenciais estão corretas antes de salvá-las.
 
 ## Quick Start
 
@@ -25,13 +36,40 @@ Sistema de envio de emails em massa via planilha XLSX com filas de processamento
 
 ```bash
 # Iniciar todos os serviços
+# As migrações do banco de dados são executadas automaticamente no bootstrap do backend
 docker-compose up -d
 
-# Acessar
-# - Frontend: http://localhost:5173
-# - Backend: http://localhost:3000
-# - Health: http://localhost:3000/api/health
+# Ver acompanhar logs das migrações
+docker compose logs -f backend
 ```
+
+## Banco de Dados e Migrações
+
+O projeto utiliza **Knex.js** para gerenciamento de banco de dados.
+
+### Migrações Automáticas
+Ao subir o ambiente via Docker Compose, o serviço `backend` aguarda o `postgres` estar pronto e executa automaticamente:
+`npm run migrate` (que mapeia para `knex migrate:latest`).
+
+### Migrações Manuais (via Docker)
+Se precisar rodar migrações manualmente ou fazer rollback:
+
+```bash
+# Rodar migrações pendentes
+docker compose exec backend npm run migrate
+
+# Rollback da última migração
+docker compose exec backend npm run migrate:rollback
+
+# Ver status das migrações
+docker compose exec backend npx knex migrate:status --knexfile knexfile.ts
+```
+
+### Criar Nova Migração
+```bash
+docker compose exec backend npx knex migrate:make nome_da_migracao -x ts
+```
+As migrações são salvas em `backend/src/migrations`.
 
 ### Sem Docker
 

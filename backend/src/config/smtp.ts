@@ -48,9 +48,27 @@ let transporter: Transporter | null = null;
 
 /**
  * Get or create Nodemailer transporter
+ * @param config Optional configuration to override defaults
  * @returns Configured transporter instance
  */
-export const getTransporter = (): Transporter => {
+export const getTransporter = (overrideConfig?: SMTPConfig): Transporter => {
+  if (overrideConfig) {
+    return nodemailer.createTransport({
+      host: overrideConfig.host,
+      port: overrideConfig.port,
+      secure: overrideConfig.secure,
+      auth: {
+        user: overrideConfig.auth.user,
+        pass: overrideConfig.auth.pass,
+      },
+      connectionTimeout: 10000,
+      socketTimeout: 10000,
+      pool: true,
+      maxConnections: 5,
+      maxMessages: 100,
+    } as TransportOptions);
+  }
+
   if (!transporter) {
     const config = getSMTPConfig();
 

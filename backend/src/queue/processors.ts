@@ -14,6 +14,8 @@ import { getTransporter, getSenderInfo } from "../config/smtp";
 import {
   getJobRepository,
   getEmailLogRepository,
+  getConfigService,
+  isDatabaseReady,
 } from "../services/databaseService";
 import { generateUniqueHash } from "../services/idempotencyService";
 
@@ -97,8 +99,31 @@ export const sendEmail = async (
     variables,
     campaignId,
   } = jobData;
-  const transporter = getTransporter();
-  const sender = getSenderInfo();
+
+  // Try to get dynamic config from DB
+  let smtpConfig;
+  let sender;
+
+  if (isDatabaseReady()) {
+    try {
+      const configService = getConfigService();
+      smtpConfig = await configService.getSmtpConfig();
+      sender = {
+        email: smtpConfig.sender || smtpConfig.auth.user,
+        name: smtpConfig.senderName || "BulkMail Pro",
+      };
+    } catch (err) {
+      console.warn(
+        "⚠️  Failed to load dynamic SMTP config, using defaults:",
+        err,
+      );
+    }
+  }
+
+  const transporter = getTransporter(smtpConfig);
+  if (!sender) {
+    sender = getSenderInfo();
+  }
 
   // Validate required fields
   if (!to || !subject || (!html && !text)) {
