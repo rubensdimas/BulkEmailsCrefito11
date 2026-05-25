@@ -370,7 +370,7 @@ const {
    - All tasks complete
    - All tests pass
    - Execute story-dod-checklist
-   - Set status: "Ready for Review"
+   - Set status: "InReview" (see Status Transitions section)
    - **Generate decision log**:
      ```javascript
      const logPath = await completeDecisionLogging(storyId, 'completed');
@@ -416,7 +416,7 @@ const {
    - All tests pass
    - Execute story-dod-checklist
    - Present completion summary to user
-   - Set status: "Ready for Review"
+   - Set status: "InReview" (see Status Transitions section)
 
 **User Prompts**: 5-10 (balanced for control and speed)
 
@@ -467,7 +467,7 @@ const {
    - All tests pass
    - Execute story-dod-checklist
    - Present execution summary vs. plan
-   - Set status: "Ready for Review"
+   - Set status: "InReview" (see Status Transitions section)
 
 **User Prompts**: All upfront (questionnaire phase), then 0 during execution
 
@@ -501,7 +501,7 @@ const {
 - Completion Notes List
 - File List
 - Change Log (add entry on completion)
-- Status (set to "Ready for Review" when complete)
+- Status (set to "InReview" when complete — see Status Transitions section)
 
 **DO NOT modify**: Story, Acceptance Criteria, Dev Notes, Testing sections
 
@@ -514,7 +514,7 @@ const {
 - Missing configuration
 - Failing regression tests
 
-### Ready for Review Criteria (All Modes)
+### InReview Criteria (All Modes)
 
 - Code matches all requirements
 - All validations pass
@@ -530,7 +530,7 @@ const {
 5. File List is complete
 6. **Execute CodeRabbit Self-Healing Loop** (see below)
 7. Execute `.aiox-core/product/checklists/story-dod-checklist.md`
-8. Set story status: "Ready for Review"
+8. Set story status: "InReview" (see Status Transitions section)
 9. HALT (do not proceed further)
 
 ---
@@ -558,10 +558,13 @@ Execute **AFTER** all tasks are complete but **BEFORE** running the DOD checklis
 │                                                              │
 │  WHILE iteration < max_iterations:                           │
 │    ┌────────────────────────────────────────────────────┐   │
-│    │ 1. Run CodeRabbit CLI                              │   │
-│    │    wsl bash -c 'cd /mnt/c/.../aiox-core &&    │   │
-│    │    ~/.local/bin/coderabbit --prompt-only           │   │
-│    │    -t uncommitted'                                  │   │
+│    │ 1. Run CodeRabbit CLI (runtime picks the shape      │   │
+│    │    for process.platform — see Issue #731):          │   │
+│    │    macOS/Linux: ~/.local/bin/coderabbit             │   │
+│    │                 --prompt-only -t uncommitted        │   │
+│    │    Windows:     wsl bash -c 'cd /mnt/<drive>/...    │   │
+│    │                 ~/.local/bin/coderabbit             │   │
+│    │                 --prompt-only -t uncommitted'       │   │
 │    │                                                     │   │
 │    │ 2. Parse output for severity levels                │   │
 │    └────────────────────────────────────────────────────┘   │
@@ -664,7 +667,11 @@ try {
   await runCodeRabbitSelfHealing(storyPath);
 } catch (error) {
   if (error.message.includes('command not found')) {
-    console.warn('⚠️  CodeRabbit not installed in WSL');
+    console.warn(
+      process.platform === 'win32'
+        ? '⚠️  CodeRabbit not found in WSL — install inside the WSL distribution.'
+        : '⚠️  CodeRabbit not found on PATH — install ~/.local/bin/coderabbit.',
+    );
     console.warn('   Skipping self-healing. Manual review required.');
     return; // Continue without self-healing
   }
@@ -915,10 +922,49 @@ Found 5 technical decisions needed.
 - **Educational Value**: Interactive mode explanations help developers learn framework patterns
 - **Scope Drift Prevention**: Pre-flight mode eliminates mid-development ambiguity
 
+## Status Transitions (MANDATORY — All Modes)
+
+**Reference:** `.claude/rules/story-lifecycle.md` — @dev owns Ready → InProgress and InProgress → InReview transitions.
+
+**These steps MUST be executed at the specified points, regardless of execution mode.**
+
+**Change Log format:** Use `{date: YYYY-MM-DD}` and `{version: MAJOR.MINOR.PATCH}`. Version MUST follow semantic bump rules: major for breaking changes, minor for features, patch for fixes/process updates. HALT if either value cannot be resolved deterministically.
+
+### On Development Start (before first task):
+
+0. **Pre-check (blocking):**
+   - If current Status is `**InProgress**`, skip to first uncompleted task (resume scenario — no status change needed).
+   - If current Status is not `**Ready**` and not `**InProgress**`, HALT and log: "Cannot start development: expected Ready or InProgress, found {current status}."
+   - If Change Log section is missing, HALT and request user to restore template structure.
+1. **Update story Status field:** change `**Ready**` to `**InProgress**` (skip if already InProgress)
+2. **Add Change Log entry:**
+   ```text
+   | {date: YYYY-MM-DD} | {version: MAJOR.MINOR.PATCH} | Development started ({mode} mode) — Status: Ready → InProgress | @dev |
+   ```
+3. **Log:** "🚀 Story status updated: Ready → InProgress"
+
+### On Development Complete (after DOD checklist, before HALT):
+
+0. **Pre-check (blocking):**
+   - If current Status is not `**InProgress**`, HALT and log: "Cannot mark for review: expected InProgress, found {current status}."
+   - If Change Log section is missing, HALT and request user to restore template structure.
+1. **Update story Status field:** change `**InProgress**` to `**InReview**`
+2. **Add Change Log entry:**
+   ```text
+   | {date: YYYY-MM-DD} | {version: MAJOR.MINOR.PATCH} | Development complete — Status: InProgress → InReview | @dev |
+   ```
+3. **Log:** "✅ Story status updated: InProgress → InReview"
+
+### Rationale
+
+Status transitions defined in `story-lifecycle.md` are advisory (contextual rules). These steps make them imperative (procedural), ensuring agents always execute the transitions as part of the workflow rather than relying on contextual rule awareness.
+
+---
+
 ## Handoff
 next_agent: @qa
 next_command: *review {story-id}
-condition: Story status is Ready for Review
+condition: Story status is InReview (updated in Status Transitions above)
 alternatives:
   - agent: @qa, command: *gate {story-id}, condition: Quick gate decision needed
   - agent: @dev, command: *apply-qa-fixes, condition: Self-identified issues during dev

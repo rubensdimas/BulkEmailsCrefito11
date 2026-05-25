@@ -366,12 +366,29 @@ function runCodeRabbitReview(projectRoot) {
   console.log('⏱️  This may take 7-30 minutes. Please wait...\n');
 
   try {
-    // Construct WSL command with proper paths
-    const wslProjectPath = projectRoot
-      .replace(/\\/g, '/')
-      .replace(/^([A-Z]):/, (match, drive) => `/mnt/${drive.toLowerCase()}`);
-
-    const coderabbitCommand = `wsl bash -c 'cd ${wslProjectPath} && ~/.local/bin/coderabbit --prompt-only -t uncommitted'`;
+    // Build the command for the current platform (Issue #731).
+    // - macOS/Linux: run cli_path directly. Expand `~` via os.homedir() so the
+    //   final command is shell-agnostic.
+    // - Windows: wrap with `wsl bash -c`, rewrite the project path to /mnt/<drive>/...
+    //   Keep `~` literal so the WSL distribution's bash expands it (host HOME
+    //   would point at C:\Users\... which WSL cannot resolve).
+    const os = require('os');
+    const path = require('path');
+    const rawCliPath = '~/.local/bin/coderabbit';
+    const isWindows = process.platform === 'win32';
+    const coderabbitCommand = isWindows
+      ? (() => {
+          const wslProjectPath = projectRoot
+            .replace(/\\/g, '/')
+            .replace(/^([A-Za-z]):/, (match, drive) => `/mnt/${drive.toLowerCase()}`);
+          return `wsl bash -c 'cd "${wslProjectPath}" && ${rawCliPath} --prompt-only -t uncommitted'`;
+        })()
+      : (() => {
+          const cliPath = rawCliPath.startsWith('~')
+            ? path.join(os.homedir(), rawCliPath.slice(1))
+            : rawCliPath;
+          return `${cliPath} --prompt-only -t uncommitted`;
+        })();
 
     console.log(`Executing: ${coderabbitCommand}\n`);
 
@@ -408,15 +425,23 @@ function runCodeRabbitReview(projectRoot) {
     // Handle authentication errors
     if (error.stderr && error.stderr.includes('not authenticated')) {
       console.error('❌ CodeRabbit not authenticated');
-      console.error('   Run: wsl bash -c "~/.local/bin/coderabbit auth status"');
+      console.error(
+        process.platform === 'win32'
+          ? '   Run: wsl bash -c "~/.local/bin/coderabbit auth status"'
+          : '   Run: ~/.local/bin/coderabbit auth status',
+      );
       return { gateImpact: 'FAIL', error: 'Not authenticated' };
     }
 
     // Handle command not found
     if (error.stderr && error.stderr.includes('command not found')) {
-      console.error('❌ CodeRabbit CLI not found in WSL');
+      console.error('❌ CodeRabbit CLI not found');
       console.error('   Expected location: ~/.local/bin/coderabbit');
-      console.error('   Verify: wsl bash -c "~/.local/bin/coderabbit --version"');
+      console.error(
+        process.platform === 'win32'
+          ? '   Verify: wsl bash -c "~/.local/bin/coderabbit --version"'
+          : '   Verify: ~/.local/bin/coderabbit --version',
+      );
       return { gateImpact: 'FAIL', error: 'Not installed' };
     }
 

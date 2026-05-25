@@ -10,8 +10,9 @@
  * @story 2.10 - Quality Gate Manager
  */
 
-const { spawn } = require('child_process');
+const childProcess = require('child_process');
 const fs = require('fs').promises;
+const os = require('os');
 const path = require('path');
 const { BaseLayer } = require('./base-layer');
 
@@ -96,12 +97,63 @@ class Layer2PRAutomation extends BaseLayer {
     }
 
     try {
-      // Check if CodeRabbit is available
-      const command =
-        this.coderabbit.command ||
-        "wsl bash -c 'cd ${PROJECT_ROOT} && ~/.local/bin/coderabbit --prompt-only -t uncommitted'";
+      // Build command for current platform when no explicit override is present.
+      // - this.coderabbit.command: explicit string wins (backward compat with old configs).
+      // - this.coderabbit.installation_mode: 'wsl' | 'native' lets ops override platform detection.
+      // - Default: Windows hosts wrap via WSL, macOS/Linux run the binary directly.
+      // - ${PROJECT_ROOT} is resolved programmatically — `child_process.spawn` with
+      //   `shell: true` does shell expansion, but we cannot rely on PROJECT_ROOT
+      //   being set in the env at call sites, so substitute it here.
+      // - Tilde handling differs per mode: native expands via os.homedir() so the
+      //   resolved absolute path is shell-agnostic; WSL mode keeps the literal `~`
+      //   so the WSL distribution's own bash expands it (the host's HOME would point
+      //   at a Windows path that WSL cannot resolve).
+      let command;
+      if (this.coderabbit.command) {
+        command = this.coderabbit.command;
+      } else {
+        const rawCliPath = this.coderabbit.cli_path || '~/.local/bin/coderabbit';
+        const mode =
+          this.coderabbit.installation_mode ||
+          (process.platform === 'win32' ? 'wsl' : 'native');
+        if (mode === 'wsl') {
+          // Probe WSL availability before building the command. Gives a clearer
+          // diagnostic than cmd.exe's generic "'wsl' is not recognized" when
+          // WSL is not installed. ENOENT (binary missing) and non-zero exit
+          // (WSL feature present but no distribution installed) both fail this
+          // check.
+          const wslProbe = childProcess.spawnSync('wsl', ['-l'], { encoding: 'utf8' });
+          if (wslProbe.error || wslProbe.status !== 0) {
+            throw new Error(
+              'CodeRabbit CLI requires WSL on Windows hosts. Install WSL via ' +
+                '`wsl --install` (https://learn.microsoft.com/windows/wsl/install), ' +
+                'then install the CodeRabbit CLI inside the WSL distribution. ' +
+                'See docs/guides/installation-troubleshooting.md Issue 10. ' +
+                'To bypass this check, set coderabbit.installation_mode=\'native\' in your config.',
+            );
+          }
+          const projectRoot = this.coderabbit.projectRoot || process.cwd();
+          const wslProjectPath = projectRoot
+            .replace(/\\/g, '/')
+            .replace(/^([A-Za-z]):/, (_, drive) => `/mnt/${drive.toLowerCase()}`);
+          // Keep literal `~` — WSL bash expands it to the WSL user's HOME.
+          command = `wsl bash -c 'cd "${wslProjectPath}" && ${rawCliPath} --prompt-only -t uncommitted'`;
+        } else {
+          const cliPath = rawCliPath.startsWith('~')
+            ? path.join(os.homedir(), rawCliPath.slice(1))
+            : rawCliPath;
+          command = `${cliPath} --prompt-only -t uncommitted`;
+        }
+      }
 
       const result = await this.runCommand(command, timeout);
+      if (result.exitCode !== undefined && result.exitCode !== 0) {
+        throw new Error(
+          `CodeRabbit CLI exited with code ${result.exitCode}. ` +
+            `stdout: ${(result.stdout || '').slice(0, 200)}, ` +
+            `stderr: ${(result.stderr || '').slice(0, 200)}`,
+        );
+      }
 
       // Parse CodeRabbit output for issues
       const issues = this.parseCodeRabbitOutput(result.stdout + result.stderr);
@@ -292,7 +344,7 @@ class Layer2PRAutomation extends BaseLayer {
         env: { ...process.env },
       };
 
-      const child = spawn(command, [], options);
+      const child = childProcess.spawn(command, [], options);
 
       let stdout = '';
       let stderr = '';

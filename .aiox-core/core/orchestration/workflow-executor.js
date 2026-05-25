@@ -20,6 +20,7 @@
 
 const fs = require('fs').promises;
 const fsSync = require('fs');
+const os = require('os');
 const path = require('path');
 const yaml = require('js-yaml');
 
@@ -774,17 +775,48 @@ class WorkflowExecutor {
    */
   async runCodeRabbitAnalysis(coderabbitConfig) {
     try {
-      const { exec } = require('child_process');
+      const childProcess = require('child_process');
       const { promisify } = require('util');
-      const execAsync = promisify(exec);
+      const execAsync = promisify(childProcess.exec);
 
-      // Build command based on installation mode
+      // Build command for current platform.
+      // - Explicit installation_mode: 'wsl' | 'native' wins (lets ops override).
+      // - Default: Windows hosts wrap via WSL, macOS/Linux run the binary directly.
+      // - cli_path defaults to ~/.local/bin/coderabbit (matches the CodeRabbit CLI installer default).
+      // - Tilde handling differs per mode: native expands via os.homedir() so the
+      //   resolved absolute path is shell-agnostic; WSL mode keeps the literal `~`
+      //   so the WSL distribution's own bash expands it (the host's HOME would point
+      //   at a Windows path that WSL cannot resolve).
+      const rawCliPath = coderabbitConfig.cli_path || '~/.local/bin/coderabbit';
+      const mode =
+        coderabbitConfig.installation_mode ||
+        (process.platform === 'win32' ? 'wsl' : 'native');
       let command;
-      if (coderabbitConfig.installation_mode === 'wsl') {
-        const wslPath = this.projectRoot.replace(/^([A-Z]):/, (_, drive) => `/mnt/${drive.toLowerCase()}`).replace(/\\/g, '/');
-        command = `wsl bash -c 'cd "${wslPath}" && ~/.local/bin/coderabbit --prompt-only -t uncommitted 2>&1'`;
+      if (mode === 'wsl') {
+        // Probe WSL availability before building the command. Gives a clearer
+        // diagnostic than cmd.exe's generic "'wsl' is not recognized" when WSL
+        // is not installed. ENOENT (binary missing) and non-zero exit (WSL
+        // feature present but no distribution installed) both fail this check.
+        const wslProbe = childProcess.spawnSync('wsl', ['-l'], { encoding: 'utf8' });
+        if (wslProbe.error || wslProbe.status !== 0) {
+          throw new Error(
+            'CodeRabbit CLI requires WSL on Windows hosts. Install WSL via ' +
+              '`wsl --install` (https://learn.microsoft.com/windows/wsl/install), ' +
+              'then install the CodeRabbit CLI inside the WSL distribution. ' +
+              'See docs/guides/installation-troubleshooting.md Issue 10. ' +
+              'To bypass this check, set coderabbit.installation_mode=\'native\' in your config.',
+          );
+        }
+        const wslPath = this.projectRoot
+          .replace(/^([A-Za-z]):/, (_, drive) => `/mnt/${drive.toLowerCase()}`)
+          .replace(/\\/g, '/');
+        // Keep literal `~` — WSL bash expands it to the WSL user's HOME.
+        command = `wsl bash -c 'cd "${wslPath}" && ${rawCliPath} --prompt-only -t uncommitted 2>&1'`;
       } else {
-        command = 'coderabbit --prompt-only -t uncommitted';
+        const cliPath = rawCliPath.startsWith('~')
+          ? path.join(os.homedir(), rawCliPath.slice(1))
+          : rawCliPath;
+        command = `${cliPath} --prompt-only -t uncommitted`;
       }
 
       if (this.options.debug) {
@@ -797,7 +829,7 @@ class WorkflowExecutor {
       });
 
       // Parse CodeRabbit output to extract issues
-      const issues = this.parseCodeRabbitOutput(stdout);
+      const issues = this.parseCodeRabbitOutput([stdout || '', stderr || ''].join('\n'));
 
       return {
         success: true,
@@ -810,6 +842,16 @@ class WorkflowExecutor {
         return {
           success: false,
           error: 'CodeRabbit CLI not installed',
+          issues: [],
+        };
+      }
+      if (error.code !== undefined && error.code !== 0) {
+        return {
+          success: false,
+          error:
+            `CodeRabbit CLI exited with code ${error.code}. ` +
+            `stdout: ${(error.stdout || '').slice(0, 200)}, ` +
+            `stderr: ${(error.stderr || '').slice(0, 200)}`,
           issues: [],
         };
       }

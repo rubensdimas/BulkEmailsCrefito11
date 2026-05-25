@@ -196,7 +196,7 @@ class GotchasMemory extends EventEmitter {
 
     // In-memory storage
     this.gotchas = new Map(); // id -> gotcha
-    this.errorTracking = new Map(); // errorHash -> { count, firstSeen, lastSeen, samples }
+    this.errorTracking = new Map(); // errorHash -> { count, firstSeen, lastSeen, timestamps, samples }
 
     // Load existing data
     this._loadGotchas();
@@ -253,15 +253,27 @@ class GotchasMemory extends EventEmitter {
         count: 0,
         firstSeen: now,
         lastSeen: now,
+        timestamps: [],
         samples: [],
         errorPattern: errorData.message,
         category: this._detectCategory(errorData.message + ' ' + (errorData.stack || '')),
       };
     }
 
-    // Update tracking
-    tracking.count++;
+    // Keep only occurrences inside the configured rolling error window.
+    const windowStart = now - this.options.errorWindowMs;
+    const timestamps = this._normalizeErrorTimestamps(tracking).filter((timestamp) => timestamp >= windowStart);
+    timestamps.push(now);
+
+    tracking.timestamps = timestamps;
+    tracking.count = timestamps.length;
+    tracking.firstSeen = timestamps[0];
     tracking.lastSeen = now;
+    tracking.samples = (tracking.samples || []).filter((sample) => {
+      const timestamp = Date.parse(sample.timestamp);
+      return Number.isFinite(timestamp) && timestamp >= windowStart;
+    });
+
     if (tracking.samples.length < 5) {
       tracking.samples.push({
         timestamp: new Date(now).toISOString(),
@@ -314,12 +326,9 @@ class GotchasMemory extends EventEmitter {
     // Sort by severity (critical first), then by last occurrence
     const severityOrder = { critical: 0, warning: 1, info: 2 };
     gotchas.sort((a, b) => {
-      const severityDiff = (severityOrder[a.severity] || 2) - (severityOrder[b.severity] || 2);
+      const severityDiff = (severityOrder[a.severity] ?? 2) - (severityOrder[b.severity] ?? 2);
       if (severityDiff !== 0) return severityDiff;
-      
-      const timeA = a.source ? new Date(a.source.lastSeen) : new Date(a.discoveredAt || 0);
-      const timeB = b.source ? new Date(b.source.lastSeen) : new Date(b.discoveredAt || 0);
-      return timeB - timeA;
+      return new Date(b.source.lastSeen) - new Date(a.source.lastSeen);
     });
 
     return gotchas;
@@ -517,11 +526,7 @@ class GotchasMemory extends EventEmitter {
     for (const gotcha of gotchas) {
       byCategory[gotcha.category] = (byCategory[gotcha.category] || 0) + 1;
       bySeverity[gotcha.severity] = (bySeverity[gotcha.severity] || 0) + 1;
-      if (gotcha.source && gotcha.source.type) {
-        bySource[gotcha.source.type] = (bySource[gotcha.source.type] || 0) + 1;
-      } else {
-        bySource['legacy'] = (bySource['legacy'] || 0) + 1;
-      }
+      bySource[gotcha.source.type] = (bySource[gotcha.source.type] || 0) + 1;
     }
 
     return {
@@ -560,7 +565,6 @@ class GotchasMemory extends EventEmitter {
    * @returns {string} Markdown content
    */
   toMarkdown() {
-    const gotchas = this.listGotchas();
     const stats = this.getStatistics();
     const now = new Date().toISOString();
 
@@ -577,19 +581,17 @@ class GotchasMemory extends EventEmitter {
 `;
 
     // Generate TOC by category
-    const allCategories = [...new Set([...Object.values(GotchaCategory), ...gotchas.map(g => g.category)])].sort();
-    
-    for (const category of allCategories) {
+    for (const category of Object.values(GotchaCategory)) {
       const count = stats.byCategory[category] || 0;
       if (count > 0) {
-        md += `- [${category.charAt(0).toUpperCase() + category.slice(1)}](#${category.toLowerCase().replace(/\s+/g, '-')}) (${count})\n`;
+        md += `- [${category.charAt(0).toUpperCase() + category.slice(1)}](#${category}) (${count})\n`;
       }
     }
 
     md += '\n---\n\n';
 
     // Generate content by category
-    for (const category of allCategories) {
+    for (const category of Object.values(GotchaCategory)) {
       const categoryGotchas = this.listGotchas({ category });
       if (categoryGotchas.length === 0) continue;
 
@@ -723,6 +725,26 @@ class GotchasMemory extends EventEmitter {
   }
 
   /**
+   * Normalize persisted error occurrence timestamps.
+   * @private
+   * @param {Object} tracking - Error tracking entry
+   * @returns {number[]} Timestamp list in milliseconds
+   */
+  _normalizeErrorTimestamps(tracking) {
+    const timestamps = Array.isArray(tracking.timestamps) ? tracking.timestamps : [tracking.lastSeen];
+
+    return timestamps
+      .map((timestamp) => {
+        if (typeof timestamp === 'number') {
+          return timestamp;
+        }
+        const parsed = Date.parse(timestamp);
+        return Number.isFinite(parsed) ? parsed : null;
+      })
+      .filter((timestamp) => timestamp !== null);
+  }
+
+  /**
    * Generate title from error message
    * @private
    */
@@ -850,14 +872,8 @@ class GotchasMemory extends EventEmitter {
       md += `**Related Files:** ${gotcha.relatedFiles.join(', ')}\n\n`;
     }
 
-    if (gotcha.source) {
-      md += `**Source:** ${gotcha.source.type || 'unknown'} (${gotcha.source.occurrences || 1} occurrences)\n`;
-      if (gotcha.source.firstSeen) {
-        md += `**First Seen:** ${gotcha.source.firstSeen}\n\n`;
-      }
-    } else if (gotcha.discoveredAt) {
-      md += `**Discovered:** ${gotcha.discoveredAt}\n\n`;
-    }
+    md += `**Source:** ${gotcha.source.type} (${gotcha.source.occurrences} occurrences)\n`;
+    md += `**First Seen:** ${gotcha.source.firstSeen}\n\n`;
 
     md += '---\n\n';
     return md;
