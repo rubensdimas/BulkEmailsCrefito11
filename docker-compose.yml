@@ -64,6 +64,7 @@ services:
       - ./backend:/app
       - /app/node_modules
       - ./backend/uploads:/app/uploads:rw
+      - ./assets:/assets:ro
     networks:
       - bulkmail-network
     depends_on:
@@ -121,6 +122,7 @@ services:
       - ./backend:/app
       - /app/node_modules
       - ./backend/uploads:/app/uploads:rw
+      - ./assets:/assets:ro
     networks:
       - bulkmail-network
     depends_on:

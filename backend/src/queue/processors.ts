@@ -18,6 +18,7 @@ import {
   isDatabaseReady,
 } from "../services/databaseService";
 import { generateUniqueHash } from "../services/idempotencyService";
+import { renderInstitutionalEmailTemplate } from "../services/emailTemplateService";
 
 interface BullJobData {
   id?: string | number;
@@ -150,13 +151,19 @@ export const sendEmail = async (
     });
   }
 
+  const templatedEmail = renderInstitutionalEmailTemplate({
+    html: processedHtml || "",
+    text: processedText,
+  });
+
   try {
     const info = await transporter.sendMail({
       from: from || `"${sender.name}" <${sender.email}>`,
       to,
       subject,
-      html: processedHtml,
-      text: processedText,
+      html: templatedEmail.html,
+      text: templatedEmail.text,
+      attachments: templatedEmail.attachments,
       replyTo,
       headers: {
         "X-Idempotency-Key": idempotencyKey,
