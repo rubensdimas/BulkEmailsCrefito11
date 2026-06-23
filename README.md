@@ -116,6 +116,8 @@ docker build -t bulkmail-backend:prod ./backend
 docker build --build-arg VITE_API_URL=/api -t bulkmail-frontend:prod ./frontend
 ```
 
+Sempre refaça o build de `bulkmail-backend:prod` após mudanças no backend ou nas migrations. A imagem de produção inclui `knexfile.ts`, `tsconfig.json` e `src/migrations` para permitir que `npm run migrate` execute as migrations TypeScript dentro do container.
+
 O argumento `VITE_API_URL=/api` garante que o frontend chame a API pelo mesmo domínio público, usando o proxy Nginx interno para `backend:3000`.
 
 ### 4. Validar o compose de produção
