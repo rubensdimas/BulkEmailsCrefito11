@@ -43,6 +43,127 @@ docker-compose up -d
 docker compose logs -f backend
 ```
 
+## Produção com Docker Swarm
+
+Este projeto possui um compose de produção para Docker Swarm em `docker-compose.prod.yml`.
+Ele foi preparado para uma VPS com Traefik já ativo, rede externa `CrefitoNet` e domínio `bulkmail.crefito.gov.br`.
+
+O acesso público deve acontecer pelo Traefik em `https://bulkmail.crefito.gov.br`. A stack não publica as portas `3000`, `5173`, `5432` ou `6379` no host; essas portas são usadas apenas dentro da rede Docker.
+
+### 1. Verificar a VPS antes do deploy
+
+Execute estes comandos diretamente na VPS antes de publicar a stack:
+
+```bash
+# Verificar portas em uso no host
+ss -tulpn
+
+# Verificar serviços Swarm existentes
+docker service ls
+
+# Verificar containers com portas publicadas
+docker ps --format 'table {{.Names}}\t{{.Ports}}'
+
+# Confirmar que a rede externa do Traefik existe
+docker network ls | grep CrefitoNet
+```
+
+Também confira se nenhum serviço Traefik já usa o mesmo host:
+
+```bash
+docker service inspect $(docker service ls -q) \
+  --format '{{.Spec.Name}} {{json .Spec.Labels}}' | grep 'bulkmail.crefito.gov.br'
+```
+
+Antes de continuar, confirme:
+
+- `CrefitoNet` existe no Swarm.
+- As portas `80` e `443` continuam sob responsabilidade do Traefik já instalado.
+- Nenhum router Traefik já usa ``Host(`bulkmail.crefito.gov.br`)``.
+- A stack do BulkMail não publica portas no host.
+
+### 2. Configurar variáveis de ambiente
+
+Crie ou atualize o `.env` na VPS com as credenciais reais de produção:
+
+```bash
+POSTGRES_USER=bulkmail
+POSTGRES_PASSWORD=troque-esta-senha
+POSTGRES_DB=bulkmail
+
+REDIS_PASSWORD=troque-esta-senha
+
+SMTP_HOST=smtp.exemplo.gov.br
+SMTP_PORT=587
+SMTP_USER=usuario-smtp
+SMTP_PASS=senha-smtp
+SMTP_SENDER=noreply@crefito.gov.br
+
+WORKER_CONCURRENCY=3
+THROTTLE_RATE=50
+```
+
+### 3. Buildar as imagens de produção
+
+Execute os builds no diretório raiz do projeto:
+
+```bash
+docker build -t bulkmail-backend:prod ./backend
+docker build --build-arg VITE_API_URL=/api -t bulkmail-frontend:prod ./frontend
+```
+
+O argumento `VITE_API_URL=/api` garante que o frontend chame a API pelo mesmo domínio público, usando o proxy Nginx interno para `backend:3000`.
+
+### 4. Validar o compose de produção
+
+Antes do deploy, valide a configuração:
+
+```bash
+docker compose -f docker-compose.prod.yml config
+docker stack config -c docker-compose.prod.yml
+```
+
+Confirme que o arquivo não possui publicação de portas:
+
+```bash
+grep -nE 'ports:|3000:3000|5173:80|5432:5432|6379:6379' docker-compose.prod.yml
+```
+
+Esse comando não deve retornar resultados.
+
+### 5. Fazer deploy manual no Swarm
+
+Publique a stack:
+
+```bash
+docker stack deploy -c docker-compose.prod.yml bulkmail
+```
+
+Acompanhe os serviços:
+
+```bash
+docker stack services bulkmail
+docker stack ps bulkmail
+```
+
+Verifique logs dos principais serviços:
+
+```bash
+docker service logs -f bulkmail_backend
+docker service logs -f bulkmail_worker
+docker service logs -f bulkmail_frontend
+```
+
+### 6. Validar a aplicação
+
+Após o Traefik rotear o domínio, valide a API e a interface:
+
+```bash
+curl https://bulkmail.crefito.gov.br/api/health
+```
+
+Acesse `https://bulkmail.crefito.gov.br` no navegador e confirme que as chamadas da interface usam `/api`, não `localhost:3000`.
+
 ## Troubleshooting (Docker)
 
 ### Migrations não executaram ou Tabelas não criadas

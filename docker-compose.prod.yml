@@ -1,0 +1,150 @@
+# Pre-deploy checks to run on the VPS before `docker stack deploy`:
+# - ss -tulpn
+# - docker service ls
+# - docker ps --format 'table {{.Names}}\t{{.Ports}}'
+# - docker network ls | grep CrefitoNet
+# - inspect existing Traefik routers/services for Host(`bulkmail.crefito.gov.br`)
+# Release criteria:
+# - CrefitoNet exists in Swarm
+# - 80/443 remain owned by the existing Traefik instance
+# - no other Traefik router already claims bulkmail.crefito.gov.br
+# - this stack must not publish host ports
+services:
+  postgres:
+    image: postgres:alpine3.22
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-bulkmail}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bulkmail123}
+      POSTGRES_DB: ${POSTGRES_DB:-bulkmail}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - CrefitoNet
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-bulkmail}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  redis:
+    image: redis:8.4.2-alpine
+    command: >
+      sh -c 'if [ -n "$${REDIS_PASSWORD}" ]; then
+        redis-server --appendonly yes --requirepass "$${REDIS_PASSWORD}";
+      else
+        redis-server --appendonly yes;
+      fi'
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    volumes:
+      - redis_data:/data
+    networks:
+      - CrefitoNet
+    healthcheck:
+      test: ["CMD-SHELL", "if [ -n \"$${REDIS_PASSWORD}\" ]; then redis-cli -a \"$${REDIS_PASSWORD}\" ping; else redis-cli ping; fi"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  backend:
+    image: bulkmail-backend:prod
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      UPLOAD_DIR: /app/uploads
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-bulkmail}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bulkmail123}
+      POSTGRES_DB: ${POSTGRES_DB:-bulkmail}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      SMTP_HOST: ${SMTP_HOST:-smtp.mailtrap.io}
+      SMTP_PORT: ${SMTP_PORT:-2525}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_SENDER: ${SMTP_SENDER:-noreply@bulkmail.com}
+    volumes:
+      - uploads_data:/app/uploads
+      - ./assets:/assets:ro
+    networks:
+      - CrefitoNet
+    command: >
+      sh -c "echo 'Waiting for database...' &&
+             until pg_isready -h postgres -p 5432 -U $${POSTGRES_USER}; do sleep 2; done &&
+             echo 'Running migrations...' &&
+             npm run migrate &&
+             echo 'Starting application...' &&
+             node dist/app.js"
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  worker:
+    image: bulkmail-backend:prod
+    environment:
+      NODE_ENV: production
+      UPLOAD_DIR: /app/uploads
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-bulkmail}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bulkmail123}
+      POSTGRES_DB: ${POSTGRES_DB:-bulkmail}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      SMTP_HOST: ${SMTP_HOST:-smtp.mailtrap.io}
+      SMTP_PORT: ${SMTP_PORT:-2525}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_SENDER: ${SMTP_SENDER:-noreply@bulkmail.com}
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-3}
+      THROTTLE_RATE: ${THROTTLE_RATE:-50}
+    volumes:
+      - uploads_data:/app/uploads
+      - ./assets:/assets:ro
+    networks:
+      - CrefitoNet
+    command: >
+      sh -c "echo 'Waiting for database...' &&
+             until pg_isready -h postgres -p 5432 -U $${POSTGRES_USER}; do sleep 2; done &&
+             echo 'Starting worker...' &&
+             node dist/queue/emailWorker.js"
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  frontend:
+    image: bulkmail-frontend:prod
+    networks:
+      - CrefitoNet
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.bulkmail.rule=Host(`bulkmail.crefito.gov.br`)"
+        - "traefik.http.routers.bulkmail.entrypoints=websecure"
+        - "traefik.http.routers.bulkmail.tls.certresolver=letsencryptresolver"
+        - "traefik.http.services.bulkmail.loadbalancer.server.port=80"
+
+networks:
+  CrefitoNet:
+    external: true
+
+volumes:
+  postgres_data:
+  redis_data:
+  uploads_data:
