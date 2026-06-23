@@ -66,6 +66,9 @@ docker ps --format 'table {{.Names}}\t{{.Ports}}'
 
 # Confirmar que a rede externa do Traefik existe
 docker network ls | grep CrefitoNet
+
+# Verificar se ja existe volume Postgres de tentativa anterior
+docker volume ls | grep postgres
 ```
 
 Também confira se nenhum serviço Traefik já usa o mesmo host:
@@ -81,6 +84,7 @@ Antes de continuar, confirme:
 - As portas `80` e `443` continuam sob responsabilidade do Traefik já instalado.
 - Nenhum router Traefik já usa ``Host(`bulkmail.crefito.gov.br`)``.
 - A stack do BulkMail não publica portas no host.
+- Se já existir volume Postgres, ele só será removido se não houver dados reais para preservar.
 
 ### 2. Configurar variáveis de ambiente
 
@@ -131,11 +135,18 @@ grep -nE 'ports:|3000:3000|5173:80|5432:5432|6379:6379' docker-compose.prod.yml
 
 Esse comando não deve retornar resultados.
 
+Confirme também que o volume do Postgres está montado em `/var/lib/postgresql`, não em `/var/lib/postgresql/data`:
+
+```bash
+grep -n '/var/lib/postgresql' docker-compose.prod.yml
+```
+
 ### 5. Fazer deploy manual no Swarm
 
 Publique a stack:
 
 ```bash
+export $(grep -v '^#' .env | xargs)
 docker stack deploy -c docker-compose.prod.yml bulkmail
 ```
 
@@ -163,6 +174,29 @@ curl https://bulkmail.crefito.gov.br/api/health
 ```
 
 Acesse `https://bulkmail.crefito.gov.br` no navegador e confirme que as chamadas da interface usam `/api`, não `localhost:3000`.
+
+### Recuperar erro de volume no PostgreSQL 18+
+
+As imagens PostgreSQL 18+ esperam que o volume seja montado em `/var/lib/postgresql`. Se a VPS falhou com mensagem sobre dados em `/var/lib/postgresql/data`, provavelmente uma tentativa anterior criou um volume no layout antigo.
+
+Se foi uma primeira subida e não há dados reais no banco, remova a stack e apenas o volume Postgres criado pela tentativa falha:
+
+```bash
+docker stack rm bulkmail
+docker stack ps bulkmail
+
+docker volume ls | grep postgres
+docker volume rm NOME_REAL_DO_VOLUME_POSTGRES
+```
+
+Depois faça o deploy novamente com o `docker-compose.prod.yml` corrigido:
+
+```bash
+export $(grep -v '^#' .env | xargs)
+docker stack deploy -c docker-compose.prod.yml bulkmail
+```
+
+Se o volume já contém dados reais, não remova o volume. Nesse caso, faça backup ou migração controlada: suba temporariamente a versão compatível com os dados existentes, gere um `pg_dump` e restaure em um volume novo compatível com PostgreSQL 18+.
 
 ## Troubleshooting (Docker)
 

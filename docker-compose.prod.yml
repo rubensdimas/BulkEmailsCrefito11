@@ -3,12 +3,14 @@
 # - docker service ls
 # - docker ps --format 'table {{.Names}}\t{{.Ports}}'
 # - docker network ls | grep CrefitoNet
+# - docker volume ls | grep postgres
 # - inspect existing Traefik routers/services for Host(`bulkmail.crefito.gov.br`)
 # Release criteria:
 # - CrefitoNet exists in Swarm
 # - 80/443 remain owned by the existing Traefik instance
 # - no other Traefik router already claims bulkmail.crefito.gov.br
 # - this stack must not publish host ports
+# - if a previous Postgres volume exists, preserve it only if it contains real data
 services:
   postgres:
     image: postgres:alpine3.22
@@ -17,7 +19,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bulkmail123}
       POSTGRES_DB: ${POSTGRES_DB:-bulkmail}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql
     networks:
       - CrefitoNet
     healthcheck:
