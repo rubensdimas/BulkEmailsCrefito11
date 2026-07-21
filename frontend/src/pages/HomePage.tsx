@@ -5,13 +5,17 @@ import EmailForm from '../components/EmailForm/EmailForm';
 import { useUpload } from '../hooks/useUpload';
 import { useEmailSubmit } from '../hooks/useEmailSubmit';
 import { getJobStatus } from '../services/api';
+import { mergeUniqueEmails } from '../utils/emailValidator';
 
 export function HomePage() {
   const navigate = useNavigate();
   
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [validEmails, setValidEmails] = useState<string[]>([]);
-  const [invalidCount, setInvalidCount] = useState(0);
+  const [uploadedEmails, setUploadedEmails] = useState<string[]>([]);
+  const [manualEmails, setManualEmails] = useState<string[]>([]);
+  const [invalidEmails, setInvalidEmails] = useState<{ email: string; error: string }[]>([]);
+
+  const validEmails = mergeUniqueEmails(uploadedEmails, manualEmails);
 
   // Check for existing job in progress after refresh
   useEffect(() => {
@@ -32,9 +36,8 @@ export function HomePage() {
   const { upload, isLoading: isUploading, error: uploadError, progress } = useUpload({
     onSuccess: (response) => {
       const validEmailsList = response.emails?.valid || [];
-      const invalidCountVal = response.emails?.invalid?.length || 0;
-      setValidEmails(validEmailsList);
-      setInvalidCount(invalidCountVal);
+      setUploadedEmails(validEmailsList);
+      setInvalidEmails(response.emails?.invalid || []);
     },
   });
 
@@ -48,6 +51,7 @@ export function HomePage() {
 
   const handleFileSelect = useCallback(async (file: File) => {
     setSelectedFile(file);
+    setInvalidEmails([]);
     await upload(file);
   }, [upload]);
 
@@ -62,9 +66,21 @@ export function HomePage() {
 
   const handleReset = useCallback(() => {
     setSelectedFile(null);
-    setValidEmails([]);
-    setInvalidCount(0);
+    setUploadedEmails([]);
+    setInvalidEmails([]);
   }, []);
+
+  const handleEmailsChange = useCallback((nextEmails: string[]) => {
+    setUploadedEmails((currentUploadedEmails) =>
+      currentUploadedEmails.filter((email) => nextEmails.includes(email))
+    );
+    setManualEmails((currentManualEmails) => {
+      const currentUploadedSet = new Set(uploadedEmails);
+      const retainedManualEmails = currentManualEmails.filter((email) => nextEmails.includes(email));
+      const newManualEmails = nextEmails.filter((email) => !currentUploadedSet.has(email));
+      return mergeUniqueEmails(retainedManualEmails, newManualEmails);
+    });
+  }, [uploadedEmails]);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -73,7 +89,7 @@ export function HomePage() {
         <div className="max-w-4xl mx-auto px-4 py-6 flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">BulkMail Pro</h1>
-            <p className="text-gray-600 mt-1">Envio de emails em massa via planilha XLSX</p>
+            <p className="text-gray-600 mt-1">Envio de emails em massa via planilha ou lista manual</p>
           </div>
           <div className="flex gap-3">
             <Link
@@ -173,7 +189,7 @@ export function HomePage() {
                 </svg>
                 <span className="text-sm font-medium text-green-700">{validEmails.length} válidos</span>
               </div>
-              {invalidCount > 0 && (
+              {invalidEmails.length > 0 && (
                 <div className="flex items-center gap-2 px-3 py-2 bg-red-50 rounded-lg">
                   <svg className="w-5 h-5 text-red-500" fill="currentColor" viewBox="0 0 20 20">
                     <path
@@ -182,7 +198,7 @@ export function HomePage() {
                       clipRule="evenodd"
                     />
                   </svg>
-                  <span className="text-sm font-medium text-red-700">{invalidCount} inválidos</span>
+                  <span className="text-sm font-medium text-red-700">{invalidEmails.length} inválidos</span>
                 </div>
               )}
             </div>
@@ -214,13 +230,54 @@ export function HomePage() {
           </section>
         )}
 
+        {/* Invalid Email Section */}
+        {invalidEmails.length > 0 && (
+          <section
+            aria-labelledby="invalid-emails-heading"
+            className="bg-white rounded-xl shadow-sm border border-red-200 p-6 mb-6"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h2 id="invalid-emails-heading" className="text-lg font-semibold text-gray-900">
+                E-mails inválidos ({invalidEmails.length})
+              </h2>
+              <span className="px-3 py-1 text-sm font-medium text-red-700 bg-red-50 rounded-full">
+                Não serão enviados
+              </span>
+            </div>
+
+            <div className="max-h-64 overflow-y-auto border border-red-100 rounded-lg">
+              <table className="w-full text-sm">
+                <thead className="bg-red-50 sticky top-0">
+                  <tr>
+                    <th className="px-4 py-2 text-left text-gray-600 font-medium">#</th>
+                    <th className="px-4 py-2 text-left text-gray-600 font-medium">E-mail</th>
+                    <th className="px-4 py-2 text-left text-gray-600 font-medium">Motivo</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {invalidEmails.map((invalidEmail, index) => (
+                    <tr key={`${invalidEmail.email}-${index}`} className="border-t border-red-100">
+                      <td className="px-4 py-2 text-gray-500">{index + 1}</td>
+                      <td className="px-4 py-2 text-red-700 font-mono text-xs break-all">
+                        {invalidEmail.email}
+                      </td>
+                      <td className="px-4 py-2 text-gray-700">{invalidEmail.error}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
+
         {/* Email Form Section */}
         <section className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
           <h2 className="text-lg font-semibold text-gray-900 mb-4">2. Configurar Email</h2>
           
           <EmailForm
             onSubmit={handleEmailSubmit}
-            disabled={validEmails.length === 0}
+            emails={validEmails}
+            onEmailsChange={handleEmailsChange}
             isLoading={isSending}
             emailCount={validEmails.length}
           />
