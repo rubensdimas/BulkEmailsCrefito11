@@ -8,7 +8,7 @@ Sistema de envio de emails em massa via planilha XLSX com filas de processamento
 - **Frontend**: React 18 + TypeScript + Tailwind CSS
 - **Database**: PostgreSQL
 - **Cache/Queue**: Redis + Bull Queue
-- **SMTP**: Nodemailer
+- **Envio**: API Mailgrid
 
 ## Funcionalidades
 
@@ -18,11 +18,11 @@ Sistema de envio de emails em massa via planilha XLSX com filas de processamento
 4. **Filas com Throttling** - Taxa configurável (10-500 emails/min)
 5. **Retry Automático** - Máximo 3 tentativas em caso de falha
 6. **Dashboard em Tempo Real** - Acompanhamento de status
-7. **Configuração Dinâmica de SMTP** - Altere as credenciais de envio via interface web sem precisar reiniciar o sistema.
+7. **Configuração Dinâmica da Mailgrid** - Altere as credenciais de envio via interface web sem precisar reiniciar o sistema.
 
-## Configuração de SMTP
+## Configuração da Mailgrid
 
-O sistema suporta duas formas de configuração de SMTP:
+O sistema suporta configuração por variáveis de ambiente ou pela interface web.
 
 1. **Variáveis de Ambiente**: Definidas no arquivo `.env` (fallback).
 2. **Interface Web**: Acesse a página de "Configurações" para salvar as credenciais no banco de dados. As configurações no banco de dados têm prioridade sobre o `.env`.
@@ -30,18 +30,101 @@ O sistema suporta duas formas de configuração de SMTP:
 ### Teste de Conexão
 Na página de configurações, você pode enviar um e-mail de teste para validar se as credenciais estão corretas antes de salvá-las.
 
+### Webhook de entregas
+
+Cadastre no painel da Mailgrid a URL pública abaixo e habilite os eventos de sucesso, soft bounce e hard bounce:
+
+```text
+https://bulkmail.crefito.gov.br/api/webhooks/mailgrid
+```
+
+O endpoint recebe requisições `POST` com `Content-Type: application/json` e valida o cabeçalho `Authorization: Bearer <TOKEN>`. O token pode ser alterado na página `/settings`; por segurança, o valor salvo nunca é devolvido pela API. Como fallback, configure `MAILGRID_WEBHOOK_TOKEN` no `.env`.
+
+Os eventos são relacionados pelo ID retornado pela Mailgrid no envio. A página `/status/{uuid}` mantém os quantitativos existentes e mostra até 100 destinatários por página, com ID da mensagem, destinatário, status e detalhes de bounce.
+
 ## Quick Start
 
 ### Com Docker (Recomendado)
 
 ```bash
-# Iniciar todos os serviços
-# As migrações do banco de dados são executadas automaticamente no bootstrap do backend
-docker-compose up -d
+# Iniciar todos os serviços e reconstruir imagens alteradas
+# As migrations são executadas automaticamente no bootstrap do backend
+docker compose up -d --build
 
-# Ver acompanhar logs das migrações
+# Acompanhar migrations e inicialização
 docker compose logs -f backend
+
+# Confirmar o estado dos containers
+docker compose ps
 ```
+
+## Atualizar containers e schema
+
+### Desenvolvimento com Docker Compose
+
+Depois de alterar o código backend, frontend ou uma migration, execute na raiz do projeto:
+
+```bash
+# Reconstruir imagens e recriar os serviços
+docker compose up -d --build
+
+# Executar migrations manualmente, caso necessário
+docker compose exec backend npm run migrate
+
+# Conferir resultado da migration e da inicialização
+docker compose logs -f backend
+docker compose ps
+```
+
+Para reiniciar os serviços sem remover os dados persistidos:
+
+```bash
+docker compose down
+docker compose up -d --build
+```
+
+O `docker compose down` não remove volumes. Não use `docker compose down -v` em um banco que contenha dados reais.
+
+### Produção com Docker Swarm
+
+Após alterar o backend ou as migrations, execute na VPS:
+
+```bash
+# Rebuild das imagens
+docker build -t bulkmail-backend:prod ./backend
+docker build --build-arg VITE_API_URL=/api -t bulkmail-frontend:prod ./frontend
+
+# Validar a configuração antes do deploy
+docker compose -f docker-compose.prod.yml config
+docker stack config -c docker-compose.prod.yml
+
+# Atualizar a stack
+export $(grep -v '^#' .env | xargs)
+docker stack deploy -c docker-compose.prod.yml bulkmail
+
+# Forçar uma nova execução do backend para aplicar migrations
+docker service update --force bulkmail_backend
+
+# Acompanhar rollout, migrations e inicialização
+docker stack services bulkmail
+docker stack ps bulkmail
+docker service logs -f bulkmail_backend
+docker service logs -f bulkmail_worker
+```
+
+O serviço `backend` executa `npm run migrate` antes de iniciar a aplicação. O worker não precisa executar migrations.
+
+Para rollback manual de uma migration, faça backup antes e execute somente após confirmar o impacto:
+
+```bash
+# Desenvolvimento
+docker compose exec backend npm run migrate:rollback
+
+# Produção: use o nome do container backend em execução
+docker exec -it <container-backend> npm run migrate:rollback
+```
+
+Nunca remova volumes PostgreSQL ou Redis para corrigir uma migration sem confirmar que não há dados a preservar.
 
 ## Produção com Docker Swarm
 
@@ -97,11 +180,11 @@ POSTGRES_DB=bulkmail
 
 REDIS_PASSWORD=troque-esta-senha
 
-SMTP_HOST=smtp.exemplo.gov.br
-SMTP_PORT=587
-SMTP_USER=usuario-smtp
-SMTP_PASS=senha-smtp
-SMTP_SENDER=noreply@crefito.gov.br
+MAILGRID_HOST=smtpxxxxxxxx.mailgrid.net.br
+MAILGRID_USER=usuario@mailgrid.net.br
+MAILGRID_PASS=senha
+MAILGRID_SENDER=noreply@crefito.gov.br
+MAILGRID_WEBHOOK_TOKEN=token-gerado-no-painel
 
 WORKER_CONCURRENCY=3
 THROTTLE_RATE=50
@@ -226,7 +309,7 @@ docker logs bulkmail-backend
 cd backend
 npm install
 cp ../.env.example .env
-# Configure .env com suas credenciais SMTP e banco de dados
+# Configure .env com suas credenciais Mailgrid e banco de dados
 
 # Iniciar servidor
 npm run dev
@@ -254,11 +337,12 @@ npm run dev
 | `POSTGRES_PASSWORD` | Senha PostgreSQL | `bulkmail123` |
 | `POSTGRES_DB` | Nome do banco | `bulkmail` |
 | `REDIS_URL` | URL Redis | `redis://localhost:6379` |
-| `SMTP_HOST` | Host SMTP | `smtp.mailtrap.io` |
-| `SMTP_PORT` | Porta SMTP | `2525` |
-| `SMTP_USER` | Usuário SMTP | - |
-| `SMTP_PASS` | Senha SMTP | - |
-| `SMTP_SENDER` | Email remetente | `noreply@bulkmail.com` |
+| `MAILGRID_HOST` | Host SMTP informado pela Mailgrid | - |
+| `MAILGRID_USER` | Usuário Mailgrid | - |
+| `MAILGRID_PASS` | Senha Mailgrid | - |
+| `MAILGRID_SENDER` | Email remetente | `noreply@bulkmail.com` |
+| `MAILGRID_SENDER_NAME` | Nome do remetente | `BulkMail Pro` |
+| `MAILGRID_WEBHOOK_TOKEN` | Token Bearer para validar webhooks Mailgrid | - |
 | `THROTTLE_RATE` | Taxa envio/min | `50` |
 
 ## API Endpoints
@@ -308,7 +392,7 @@ Response:
 
 ### Status
 ```
-GET /api/status/:jobId
+GET /api/status/:jobId?page=1
 
 Response:
 {
@@ -321,6 +405,14 @@ Response:
   "processing": 10,
   "waiting": 33
 }
+```
+
+### Webhook Mailgrid
+
+```http
+POST /api/webhooks/mailgrid
+Authorization: Bearer <TOKEN>
+Content-Type: application/json
 ```
 
 ## Estrutura do Projeto

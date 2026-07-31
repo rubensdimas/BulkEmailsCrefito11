@@ -53,7 +53,7 @@ const startWorker = async (): Promise<void> => {
 
   // Create worker - process jobs without specific processor name (default)
   // Jobs are added without a name in emailQueue.ts, so we use default processor
-  const processor = queue.process(WORKER_CONCURRENCY, async (job) =>
+  queue.process(WORKER_CONCURRENCY, async (job) =>
     emailJobProcessor(job as unknown as BullJobData),
   );
 
@@ -62,7 +62,7 @@ const startWorker = async (): Promise<void> => {
   // Graceful shutdown
   const shutdown = async (): Promise<void> => {
     console.log("\n🛑 Shutting down worker...");
-    await (processor as any).close();
+    await queue.close();
 
     // Close database
     try {

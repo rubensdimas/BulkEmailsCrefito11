@@ -70,11 +70,12 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
-      SMTP_HOST: ${SMTP_HOST:-smtp.mailtrap.io}
-      SMTP_PORT: ${SMTP_PORT:-2525}
-      SMTP_USER: ${SMTP_USER:-}
-      SMTP_PASS: ${SMTP_PASS:-}
-      SMTP_SENDER: ${SMTP_SENDER:-noreply@bulkmail.com}
+      MAILGRID_HOST: ${MAILGRID_HOST:-}
+      MAILGRID_USER: ${MAILGRID_USER:-}
+      MAILGRID_PASS: ${MAILGRID_PASS:-}
+      MAILGRID_SENDER: ${MAILGRID_SENDER:-noreply@bulkmail.com}
+      MAILGRID_SENDER_NAME: ${MAILGRID_SENDER_NAME:-BulkMail Pro}
+      MAILGRID_WEBHOOK_TOKEN: ${MAILGRID_WEBHOOK_TOKEN:-}
     volumes:
       - uploads_data:/app/uploads
       - ./assets:/assets:ro
@@ -105,11 +106,11 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
-      SMTP_HOST: ${SMTP_HOST:-smtp.mailtrap.io}
-      SMTP_PORT: ${SMTP_PORT:-2525}
-      SMTP_USER: ${SMTP_USER:-}
-      SMTP_PASS: ${SMTP_PASS:-}
-      SMTP_SENDER: ${SMTP_SENDER:-noreply@bulkmail.com}
+      MAILGRID_HOST: ${MAILGRID_HOST:-}
+      MAILGRID_USER: ${MAILGRID_USER:-}
+      MAILGRID_PASS: ${MAILGRID_PASS:-}
+      MAILGRID_SENDER: ${MAILGRID_SENDER:-noreply@bulkmail.com}
+      MAILGRID_SENDER_NAME: ${MAILGRID_SENDER_NAME:-BulkMail Pro}
       WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-3}
       THROTTLE_RATE: ${THROTTLE_RATE:-50}
     volumes:

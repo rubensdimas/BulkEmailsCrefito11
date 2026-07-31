@@ -9,6 +9,7 @@ interface UseJobStatusOptions {
   onComplete?: (status: JobStatus) => void;
   onError?: (error: Error) => void;
   enabled?: boolean;
+  page?: number;
 }
 
 interface UseJobStatusReturn {
@@ -28,6 +29,7 @@ export function useJobStatus(options: UseJobStatusOptions): UseJobStatusReturn {
     onComplete,
     onError,
     enabled = true,
+    page = 1,
   } = options;
 
   const [status, setStatus] = useState<JobStatus | null>(null);
@@ -38,6 +40,7 @@ export function useJobStatus(options: UseJobStatusOptions): UseJobStatusReturn {
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isMountedRef = useRef(true);
   const isFetchingRef = useRef(false);
+  const completionNotifiedRef = useRef(false);
 
   // Stable refs for callbacks to avoid dependency churn
   const onCompleteRef = useRef(onComplete);
@@ -63,15 +66,17 @@ export function useJobStatus(options: UseJobStatusOptions): UseJobStatusReturn {
     setError(null);
 
     try {
-      const result = await getJobStatus(jobId);
+      const result = await getJobStatus(jobId, page);
 
       if (isMountedRef.current) {
         setStatus(result);
 
         if (result.status === 'completed' || result.status === 'failed') {
-          stopPolling();
           localStorage.removeItem('last_bulk_email_job_id');
-          onCompleteRef.current?.(result);
+          if (!completionNotifiedRef.current) {
+            completionNotifiedRef.current = true;
+            onCompleteRef.current?.(result);
+          }
         }
       }
     } catch (err) {
@@ -88,7 +93,7 @@ export function useJobStatus(options: UseJobStatusOptions): UseJobStatusReturn {
         setIsLoading(false);
       }
     }
-  }, [jobId, enabled, stopPolling]);
+  }, [jobId, enabled, page]);
 
   const startPolling = useCallback(() => {
     if (!jobId || !enabled || intervalRef.current) return;
@@ -120,7 +125,11 @@ export function useJobStatus(options: UseJobStatusOptions): UseJobStatusReturn {
     return () => {
       stopPollingRef.current();
     };
-  }, [jobId, enabled]);
+  }, [jobId, enabled, page]);
+
+  useEffect(() => {
+    completionNotifiedRef.current = false;
+  }, [jobId]);
 
   useEffect(() => {
     isMountedRef.current = true;

@@ -3,6 +3,25 @@ import Bull from 'bull';
 import { getEmailQueue, getQueueStats, EmailJobData } from '../queue/emailQueue';
 import { getJobRepository, getEmailLogRepository, isDatabaseReady } from '../services/databaseService';
 import { computeJobStatus, shouldSyncStatus } from '../services/jobStatusService';
+import { EmailLogStatus } from '../models/EmailLog';
+
+const STATUS_PAGE_SIZE = 100;
+
+export interface EmailDeliveryItem {
+  messageId: string | null;
+  recipient: string;
+  status: EmailLogStatus;
+  statusMessage: string | null;
+  sentAt: string | null;
+  eventAt: string | null;
+}
+
+export interface StatusPagination {
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+}
 
 interface BullJobLike {
   id: string | number;
@@ -30,6 +49,8 @@ export interface JobStatusResponse {
   updatedAt?: string;
   startedAt?: string;
   completedAt?: string;
+  emails?: EmailDeliveryItem[];
+  pagination?: StatusPagination;
   error?: string;
 }
 
@@ -44,12 +65,21 @@ export const getJobStatus = async (
 ): Promise<void> => {
   try {
     const { jobId } = req.params;
+    const page = req.query.page === undefined ? 1 : Number(req.query.page);
 
     if (!jobId) {
       res.status(400).json({
         success: false,
         error: 'Job ID is required',
       } as JobStatusResponse);
+      return;
+    }
+
+    if (!Number.isInteger(page) || page < 1) {
+      res.status(400).json({
+        success: false,
+        error: 'Page must be a positive integer',
+      });
       return;
     }
 
@@ -68,7 +98,10 @@ export const getJobStatus = async (
         }
 
         if (job) {
-          const stats = await emailLogRepo.getStatsByJobId(job.id);
+          const [stats, emailPage] = await Promise.all([
+            emailLogRepo.getStatsByJobId(job.id),
+            emailLogRepo.findPageByJobId(job.id, page, STATUS_PAGE_SIZE),
+          ]);
           const computed = computeJobStatus(job, stats);
 
           // Auto-sync DB column if stale
@@ -93,6 +126,20 @@ export const getJobStatus = async (
             updatedAt: job.updated_at ? new Date(job.updated_at).toISOString() : undefined,
             startedAt: job.started_at ? new Date(job.started_at).toISOString() : undefined,
             completedAt: job.completed_at ? new Date(job.completed_at).toISOString() : undefined,
+            emails: emailPage.data.map((email) => ({
+              messageId: email.mailgrid_message_id,
+              recipient: email.recipient_email,
+              status: email.status,
+              statusMessage: email.mailgrid_status_message || email.error_message,
+              sentAt: email.mailgrid_sent_at?.toISOString() || email.sent_at?.toISOString() || null,
+              eventAt: email.mailgrid_event_at?.toISOString() || null,
+            })),
+            pagination: {
+              page,
+              pageSize: STATUS_PAGE_SIZE,
+              total: emailPage.total,
+              totalPages: Math.ceil(emailPage.total / STATUS_PAGE_SIZE),
+            },
           } as JobStatusResponse);
           return;
         }

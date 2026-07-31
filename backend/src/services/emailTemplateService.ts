@@ -1,11 +1,4 @@
-import fs from "fs";
-import path from "path";
-import type Mail from "nodemailer/lib/mailer";
 import { sanitizeHtmlContent } from "./idempotencyService";
-
-const CREFITO11_LOGO_CID = "no-reply@crefito11.gov.br";
-const CREFITO11_LOGO_FILE = "CREFITO 11 - Marca - Neg 2 Completa.png";
-const CREFITO11_LOGO_RELATIVE_PATH = path.join("logos", CREFITO11_LOGO_FILE);
 
 const BRAND = {
     name: "CREFITO11",
@@ -19,40 +12,14 @@ const BRAND = {
 };
 
 export interface InstitutionalEmailTemplateInput {
-    html: string;
-    text?: string;
-    logoPath?: string;
+  html: string;
+  text?: string;
 }
 
 export interface InstitutionalEmailTemplateResult {
-    html: string;
-    text: string;
-    attachments: Mail.Attachment[];
+  html: string;
+  text: string;
 }
-
-const candidateLogoPaths = (explicitPath?: string): string[] => {
-    const candidates = [
-        explicitPath,
-        process.env.CREFITO11_LOGO_PATH,
-        path.resolve("/assets", CREFITO11_LOGO_RELATIVE_PATH),
-        path.resolve(process.cwd(), "../assets", CREFITO11_LOGO_RELATIVE_PATH),
-        path.resolve(process.cwd(), "assets", CREFITO11_LOGO_RELATIVE_PATH),
-    ];
-
-    return candidates.filter((candidate): candidate is string =>
-        Boolean(candidate),
-    );
-};
-
-export const resolveCrefito11LogoPath = (
-    explicitPath?: string,
-): string | null => {
-    return (
-        candidateLogoPaths(explicitPath).find((candidate) =>
-            fs.existsSync(candidate),
-        ) || null
-    );
-};
 
 export const stripHtmlToText = (html: string): string => {
     return html
@@ -86,10 +53,8 @@ const buildInstitutionalText = (bodyText: string): string => {
         .join("\n");
 };
 
-const buildInstitutionalHtml = (bodyHtml: string, logoSrc?: string): string => {
-    const logoMarkup = logoSrc
-        ? `<img src="${logoSrc}" width="220" alt="CREFITO-11" style="display:block;width:220px;max-width:100%;height:auto;border:0;outline:none;text-decoration:none;">`
-        : `<strong style="font-size:22px;line-height:28px;color:#ffffff;">${BRAND.name}</strong>`;
+const buildInstitutionalHtml = (bodyHtml: string): string => {
+    const logoMarkup = `<strong style="font-size:22px;line-height:28px;color:#ffffff;">${BRAND.name}</strong>`;
 
     return `<!doctype html>
 <html lang="pt-BR">
@@ -131,27 +96,12 @@ const buildInstitutionalHtml = (bodyHtml: string, logoSrc?: string): string => {
 export const renderInstitutionalEmailTemplate = ({
     html,
     text,
-    logoPath,
 }: InstitutionalEmailTemplateInput): InstitutionalEmailTemplateResult => {
     const sanitizedBody = sanitizeHtmlContent(html);
-    const resolvedLogoPath = resolveCrefito11LogoPath(logoPath);
-    const logoSrc = resolvedLogoPath ? `cid:${CREFITO11_LOGO_CID}` : undefined;
     const bodyText = text?.trim() || stripHtmlToText(sanitizedBody);
 
-    const attachments: Mail.Attachment[] = resolvedLogoPath
-        ? [
-              {
-                  filename: CREFITO11_LOGO_FILE,
-                  path: resolvedLogoPath,
-                  cid: CREFITO11_LOGO_CID,
-                  contentType: "image/png",
-              },
-          ]
-        : [];
-
     return {
-        html: buildInstitutionalHtml(sanitizedBody, logoSrc),
+        html: buildInstitutionalHtml(sanitizedBody),
         text: buildInstitutionalText(bodyText),
-        attachments,
     };
 };

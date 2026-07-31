@@ -11,6 +11,8 @@ import {
   UpdateEmailLogInput,
   EmailLogFilter,
   EmailStats,
+  MailgridWebhookUpdate,
+  shouldApplyMailgridWebhookEvent,
   emailLogFromRow,
 } from '../models/EmailLog';
 
@@ -53,6 +55,14 @@ export class EmailLogRepository {
         error_message: null,
         error_code: null,
         unique_hash: input.unique_hash,
+        mailgrid_message_id: null,
+        delivered_at: null,
+        mailgrid_sent_at: null,
+        mailgrid_event_at: null,
+        webhook_received_at: null,
+        mailgrid_status_code: null,
+        mailgrid_status_message: null,
+        mailgrid_payload: null,
         sent_at: null,
         opened_at: null,
         clicked_at: null,
@@ -96,6 +106,14 @@ export class EmailLogRepository {
         error_message: null,
         error_code: null,
         unique_hash: input.unique_hash,
+        mailgrid_message_id: null,
+        delivered_at: null,
+        mailgrid_sent_at: null,
+        mailgrid_event_at: null,
+        webhook_received_at: null,
+        mailgrid_status_code: null,
+        mailgrid_status_message: null,
+        mailgrid_payload: null,
         sent_at: null,
         opened_at: null,
         clicked_at: null,
@@ -133,6 +151,14 @@ export class EmailLogRepository {
     return emailLogFromRow(row as unknown as EmailLogRow);
   }
 
+  async findByMailgridMessageId(messageId: string): Promise<EmailLog | null> {
+    const row = await this.db('email_logs')
+      .where('mailgrid_message_id', messageId)
+      .first();
+    if (!row) return null;
+    return emailLogFromRow(row as unknown as EmailLogRow);
+  }
+
   /**
    * Find all email logs by job ID
    */
@@ -156,6 +182,64 @@ export class EmailLogRepository {
 
     const rows = await query;
     return rows.map((row) => emailLogFromRow(row as unknown as EmailLogRow));
+  }
+
+  async findPageByJobId(
+    jobId: string,
+    page: number,
+    pageSize: number
+  ): Promise<{ data: EmailLog[]; total: number }> {
+    const offset = (page - 1) * pageSize;
+    const [rows, countRow] = await Promise.all([
+      this.db('email_logs')
+        .where('job_id', jobId)
+        .select('*')
+        .orderBy('created_at', 'desc')
+        .orderBy('id', 'desc')
+        .limit(pageSize)
+        .offset(offset),
+      this.db('email_logs')
+        .where('job_id', jobId)
+        .count<{ count: string }[]>({ count: '*' })
+        .first(),
+    ]);
+
+    return {
+      data: rows.map((row) => emailLogFromRow(row as unknown as EmailLogRow)),
+      total: Number(countRow?.count) || 0,
+    };
+  }
+
+  async applyMailgridWebhook(
+    messageId: string,
+    input: MailgridWebhookUpdate
+  ): Promise<'updated' | 'ignored' | 'not_found'> {
+    const existing = await this.findByMailgridMessageId(messageId);
+    if (!existing) return 'not_found';
+
+    if (!shouldApplyMailgridWebhookEvent(existing.mailgrid_event_at, input.eventAt)) {
+      return 'ignored';
+    }
+
+    const isBounce = input.status === 'soft_bounce' || input.status === 'hard_bounce';
+    await this.db('email_logs')
+      .where('id', existing.id)
+      .update({
+        status: input.status,
+        delivered_at: input.status === 'delivered'
+          ? input.eventAt || input.receivedAt
+          : existing.delivered_at,
+        bounces_at: isBounce ? input.eventAt || input.receivedAt : existing.bounces_at,
+        mailgrid_sent_at: input.sentAt || existing.mailgrid_sent_at,
+        mailgrid_event_at: input.eventAt || existing.mailgrid_event_at,
+        webhook_received_at: input.receivedAt,
+        mailgrid_status_code: input.statusCode,
+        mailgrid_status_message: input.statusMessage,
+        mailgrid_payload: input.payload,
+        updated_at: input.receivedAt,
+      });
+
+    return 'updated';
   }
 
   /**
@@ -237,6 +321,30 @@ export class EmailLogRepository {
     if (input.retry_count !== undefined) {
       updateData.retry_count = input.retry_count;
     }
+    if (input.mailgrid_message_id !== undefined) {
+      updateData.mailgrid_message_id = input.mailgrid_message_id;
+    }
+    if (input.delivered_at !== undefined) {
+      updateData.delivered_at = input.delivered_at;
+    }
+    if (input.mailgrid_sent_at !== undefined) {
+      updateData.mailgrid_sent_at = input.mailgrid_sent_at;
+    }
+    if (input.mailgrid_event_at !== undefined) {
+      updateData.mailgrid_event_at = input.mailgrid_event_at;
+    }
+    if (input.webhook_received_at !== undefined) {
+      updateData.webhook_received_at = input.webhook_received_at;
+    }
+    if (input.mailgrid_status_code !== undefined) {
+      updateData.mailgrid_status_code = input.mailgrid_status_code;
+    }
+    if (input.mailgrid_status_message !== undefined) {
+      updateData.mailgrid_status_message = input.mailgrid_status_message;
+    }
+    if (input.mailgrid_payload !== undefined) {
+      updateData.mailgrid_payload = input.mailgrid_payload;
+    }
 
     if (Object.keys(updateData).length === 0) {
       return this.findById(id);
@@ -256,14 +364,18 @@ export class EmailLogRepository {
   /**
    * Mark email as sent
    */
-  async markAsSent(id: string): Promise<void> {
+  async markAsSent(id: string, mailgridMessageId?: string): Promise<void> {
+    const update: Partial<EmailLogRow> = {
+      status: 'sent',
+      sent_at: new Date(),
+      updated_at: new Date(),
+    };
+    if (mailgridMessageId) {
+      update.mailgrid_message_id = mailgridMessageId;
+    }
     await this.db('email_logs')
       .where('id', id)
-      .update({
-        status: 'sent',
-        sent_at: new Date(),
-        updated_at: new Date(),
-      });
+      .update(update);
   }
 
   /**
@@ -300,7 +412,7 @@ export class EmailLogRepository {
   async isDuplicate(uniqueHash: string): Promise<boolean> {
     const row = await this.db('email_logs')
       .where('unique_hash', uniqueHash)
-      .where('status', 'sent')
+      .whereIn('status', ['sent', 'delivered', 'soft_bounce', 'hard_bounce'])
       .first();
     return !!row;
   }
@@ -317,7 +429,10 @@ export class EmailLogRepository {
         this.db.raw("SUM(CASE WHEN status = 'processing' THEN 1 ELSE 0 END) as processing"),
         this.db.raw("SUM(CASE WHEN status = 'sent' THEN 1 ELSE 0 END) as sent"),
         this.db.raw("SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed"),
-        this.db.raw("SUM(CASE WHEN status = 'bounced' THEN 1 ELSE 0 END) as bounced")
+        this.db.raw("SUM(CASE WHEN status IN ('bounced', 'soft_bounce', 'hard_bounce') THEN 1 ELSE 0 END) as bounced"),
+        this.db.raw("SUM(CASE WHEN status = 'delivered' THEN 1 ELSE 0 END) as delivered"),
+        this.db.raw("SUM(CASE WHEN status = 'soft_bounce' THEN 1 ELSE 0 END) as soft_bounce"),
+        this.db.raw("SUM(CASE WHEN status = 'hard_bounce' THEN 1 ELSE 0 END) as hard_bounce")
       )
       .first();
 
@@ -328,6 +443,9 @@ export class EmailLogRepository {
       sent: Number(stats?.sent) || 0,
       failed: Number(stats?.failed) || 0,
       bounced: Number(stats?.bounced) || 0,
+      delivered: Number(stats?.delivered) || 0,
+      soft_bounce: Number(stats?.soft_bounce) || 0,
+      hard_bounce: Number(stats?.hard_bounce) || 0,
     };
   }
 
@@ -342,7 +460,10 @@ export class EmailLogRepository {
         this.db.raw("SUM(CASE WHEN status = 'processing' THEN 1 ELSE 0 END) as processing"),
         this.db.raw("SUM(CASE WHEN status = 'sent' THEN 1 ELSE 0 END) as sent"),
         this.db.raw("SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed"),
-        this.db.raw("SUM(CASE WHEN status = 'bounced' THEN 1 ELSE 0 END) as bounced")
+        this.db.raw("SUM(CASE WHEN status IN ('bounced', 'soft_bounce', 'hard_bounce') THEN 1 ELSE 0 END) as bounced"),
+        this.db.raw("SUM(CASE WHEN status = 'delivered' THEN 1 ELSE 0 END) as delivered"),
+        this.db.raw("SUM(CASE WHEN status = 'soft_bounce' THEN 1 ELSE 0 END) as soft_bounce"),
+        this.db.raw("SUM(CASE WHEN status = 'hard_bounce' THEN 1 ELSE 0 END) as hard_bounce")
       )
       .first();
 
@@ -353,6 +474,9 @@ export class EmailLogRepository {
       sent: Number(stats?.sent) || 0,
       failed: Number(stats?.failed) || 0,
       bounced: Number(stats?.bounced) || 0,
+      delivered: Number(stats?.delivered) || 0,
+      soft_bounce: Number(stats?.soft_bounce) || 0,
+      hard_bounce: Number(stats?.hard_bounce) || 0,
     };
   }
 

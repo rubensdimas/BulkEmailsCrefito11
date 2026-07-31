@@ -96,6 +96,34 @@ export interface JobStatus {
   updatedAt?: string;
   startedAt?: string;
   completedAt?: string;
+  emails?: EmailDeliveryItem[];
+  pagination?: StatusPagination;
+}
+
+export type EmailDeliveryStatus =
+  | 'pending'
+  | 'processing'
+  | 'sent'
+  | 'delivered'
+  | 'soft_bounce'
+  | 'hard_bounce'
+  | 'failed'
+  | 'bounced';
+
+export interface EmailDeliveryItem {
+  messageId: string | null;
+  recipient: string;
+  status: EmailDeliveryStatus;
+  statusMessage: string | null;
+  sentAt: string | null;
+  eventAt: string | null;
+}
+
+export interface StatusPagination {
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
 }
 
 export interface Job {
@@ -126,14 +154,14 @@ export interface PaginatedResponse<T> {
   };
 }
 
-export interface SmtpConfig {
+export interface MailgridConfig {
   host: string;
-  port: number;
   user: string;
   pass: string;
-  secure: boolean;
   from_address: string;
   from_name: string;
+  webhook_token: string;
+  webhook_token_configured?: boolean;
 }
 
 export interface ConfigResponse<T> {
@@ -145,21 +173,21 @@ export interface ConfigResponse<T> {
 
 // ============= API Functions =============
 
-// Get SMTP configuration
-export const getSmtpConfig = async (): Promise<ConfigResponse<SmtpConfig>> => {
-  const response = await api.get<ConfigResponse<SmtpConfig>>('/config/smtp');
+// Get Mailgrid configuration
+export const getMailgridConfig = async (signal?: AbortSignal): Promise<ConfigResponse<MailgridConfig>> => {
+  const response = await api.get<ConfigResponse<MailgridConfig>>('/config/mailgrid', { signal });
   return response.data;
 };
 
-// Update SMTP configuration
-export const updateSmtpConfig = async (config: SmtpConfig): Promise<ConfigResponse<null>> => {
-  const response = await api.post<ConfigResponse<null>>('/config/smtp', config);
+// Update Mailgrid configuration
+export const updateMailgridConfig = async (config: MailgridConfig): Promise<ConfigResponse<null>> => {
+  const response = await api.post<ConfigResponse<null>>('/config/mailgrid', config);
   return response.data;
 };
 
-// Test SMTP configuration
-export const testSmtpConfig = async (config: SmtpConfig, to: string): Promise<ConfigResponse<null>> => {
-  const response = await api.post<ConfigResponse<null>>('/config/smtp/test', { config, to });
+// Test Mailgrid configuration
+export const testMailgridConfig = async (config: MailgridConfig, to: string): Promise<ConfigResponse<null>> => {
+  const response = await api.post<ConfigResponse<null>>('/config/mailgrid/test', { config, to });
   return response.data;
 };
 
@@ -184,8 +212,8 @@ export const sendEmails = async (data: SendEmailRequest): Promise<SendEmailRespo
 };
 
 // Get job status
-export const getJobStatus = async (jobId: string): Promise<JobStatus> => {
-  const response = await api.get<JobStatus>(`/status/${jobId}`);
+export const getJobStatus = async (jobId: string, page: number = 1): Promise<JobStatus> => {
+  const response = await api.get<JobStatus>(`/status/${jobId}`, { params: { page } });
   return response.data;
 };
 

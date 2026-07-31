@@ -1,14 +1,13 @@
 import { Request, Response, NextFunction } from 'express';
-import nodemailer from 'nodemailer';
 import { getConfigService, isDatabaseReady } from '../services/databaseService';
-import { SmtpConfig } from '../models/SystemConfig';
-import { resetTransporter } from '../config/smtp';
+import { MailgridConfig } from '../models/SystemConfig';
+import { sendViaMailgrid } from '../services/mailgridService';
 
 /**
- * GET /api/config/smtp
- * Get current SMTP configuration
+ * GET /api/config/mailgrid
+ * Get current Mailgrid configuration
  */
-export const getSmtpConfig = async (
+export const getMailgridConfig = async (
   _req: Request,
   res: Response,
   next: NextFunction
@@ -23,17 +22,17 @@ export const getSmtpConfig = async (
     }
 
     const configService = getConfigService();
-    const smtpConfig = await configService.getSmtpConfig();
+    const config = await configService.getMailgridConfig();
 
-    // Map to SmtpConfig interface for the frontend
-    const response: SmtpConfig = {
-      host: smtpConfig.host,
-      port: smtpConfig.port,
-      user: smtpConfig.auth.user,
+    // Never expose the stored password to the frontend.
+    const response: MailgridConfig = {
+      host: config.host,
+      user: config.user,
       pass: '', // Don't return password for security
-      secure: smtpConfig.secure,
-      from_address: smtpConfig.sender || '',
-      from_name: smtpConfig.senderName || ''
+      from_address: config.from_address,
+      from_name: config.from_name || '',
+      webhook_token: '',
+      webhook_token_configured: Boolean(config.webhook_token),
     };
 
     res.status(200).json({
@@ -46,22 +45,22 @@ export const getSmtpConfig = async (
 };
 
 /**
- * POST /api/config/smtp
- * Update SMTP configuration
+ * POST /api/config/mailgrid
+ * Update Mailgrid configuration
  */
-export const updateSmtpConfig = async (
+export const updateMailgridConfig = async (
   req: Request,
   res: Response,
   next: NextFunction
 ): Promise<void> => {
   try {
-    const config: SmtpConfig = req.body;
+    const config: MailgridConfig = req.body;
 
     // Basic validation
-    if (!config.host || !config.port || !config.user || !config.from_address) {
+    if (!config.host || !config.user || !config.from_address) {
       res.status(400).json({
         success: false,
-        error: 'Missing required SMTP fields'
+        error: 'Missing required Mailgrid fields'
       });
       return;
     }
@@ -76,20 +75,18 @@ export const updateSmtpConfig = async (
 
     const configService = getConfigService();
     
-    // If password is empty, keep the existing one if we're updating
-    if (!config.pass) {
-      const existing = await configService.getSmtpConfig();
-      config.pass = existing.auth.pass;
+    // Empty secrets mean "keep the current value".
+    if (!config.pass || !config.webhook_token) {
+      const existing = await configService.getMailgridConfig();
+      if (!config.pass) config.pass = existing.pass;
+      if (!config.webhook_token) config.webhook_token = existing.webhook_token;
     }
 
-    await configService.updateSmtpConfig(config);
-    
-    // Reset transporter cache so it reloads with new config
-    resetTransporter();
+    await configService.updateMailgridConfig(config);
 
     res.status(200).json({
       success: true,
-      message: 'SMTP configuration updated successfully'
+      message: 'Mailgrid configuration updated successfully'
     });
   } catch (error) {
     next(error);
@@ -97,16 +94,16 @@ export const updateSmtpConfig = async (
 };
 
 /**
- * POST /api/config/smtp/test
- * Test SMTP configuration by sending a test email
+ * POST /api/config/mailgrid/test
+ * Test Mailgrid configuration by sending a test email
  */
-export const testSmtpConfig = async (
+export const testMailgridConfig = async (
   req: Request,
   res: Response,
-  next: NextFunction
+  _next: NextFunction
 ): Promise<void> => {
   try {
-    const { config, to } = req.body as { config: SmtpConfig; to: string };
+    const { config, to } = req.body as { config: MailgridConfig; to: string };
 
     if (!config || !to) {
       res.status(400).json({
@@ -119,49 +116,34 @@ export const testSmtpConfig = async (
     // Use current password from DB if not provided in the test request
     if (!config.pass && isDatabaseReady()) {
       const configService = getConfigService();
-      const existing = await configService.getSmtpConfig();
-      config.pass = existing.auth.pass;
+      const existing = await configService.getMailgridConfig();
+      config.pass = existing.pass;
     }
 
-    // Create a temporary transporter for testing
-    const transporter = nodemailer.createTransport({
-      host: config.host,
-      port: config.port,
-      secure: config.secure,
-      auth: {
-        user: config.user,
-        pass: config.pass,
-      },
-      connectionTimeout: 10000,
-    });
-
-    // Verify transporter
-    await transporter.verify();
-
-    // Send test email
-    await transporter.sendMail({
-      from: `"${config.from_name || 'BulkMail Test'}" <${config.from_address}>`,
+    await sendViaMailgrid(config, {
+      from: config.from_address,
+      fromName: config.from_name || 'BulkMail Test',
       to,
-      subject: 'BulkMail Pro - SMTP Test Connection',
-      text: 'Congratulations! Your SMTP configuration is working correctly.',
-      html: '<h1>BulkMail Pro</h1><p>Congratulations! Your SMTP configuration is working correctly.</p>'
+      subject: 'BulkMail Pro - Mailgrid Test Connection',
+      text: 'Congratulations! Your Mailgrid configuration is working correctly.',
+      html: '<h1>BulkMail Pro</h1><p>Congratulations! Your Mailgrid configuration is working correctly.</p>'
     });
 
     res.status(200).json({
       success: true,
-      message: 'Test email sent successfully'
+      message: 'Mailgrid test email sent successfully'
     });
-  } catch (error: any) {
+  } catch (error) {
     res.status(500).json({
       success: false,
-      error: 'SMTP test failed',
-      details: error.message
+      error: 'Mailgrid test failed',
+      details: error instanceof Error ? error.message : 'Unknown error'
     });
   }
 };
 
 export default {
-  getSmtpConfig,
-  updateSmtpConfig,
-  testSmtpConfig
+  getMailgridConfig,
+  updateMailgridConfig,
+  testMailgridConfig
 };

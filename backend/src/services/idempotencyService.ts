@@ -52,7 +52,7 @@ export const shouldSendEmail = (
  * @returns true if email was already sent
  */
 export const wasEmailSent = (existingStatus: string | undefined): boolean => {
-  return existingStatus === 'sent';
+  return ['sent', 'delivered', 'soft_bounce', 'hard_bounce'].includes(existingStatus || '');
 };
 
 /**

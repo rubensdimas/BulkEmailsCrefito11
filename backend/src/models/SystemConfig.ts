@@ -4,22 +4,22 @@
  */
 
 /**
- * SMTP Configuration interface
+ * Mailgrid configuration interface
  */
-export interface SmtpConfig {
+export interface MailgridConfig {
   host: string;
-  port: number;
   user: string;
   pass: string;
-  secure: boolean;
   from_address: string;
   from_name?: string;
+  webhook_token?: string;
+  webhook_token_configured?: boolean;
 }
 
 /**
  * Configuration value type
  */
-export type ConfigValue = SmtpConfig | Record<string, unknown>;
+export type ConfigValue = MailgridConfig | Record<string, unknown>;
 
 /**
  * SystemConfig entity interface

@@ -57,6 +57,7 @@ describe('JobController', () => {
       jobRepoMock.count.mockResolvedValue(2);
       emailLogRepoMock.getStatsByJobId.mockResolvedValue({
         total_logs: 0, pending: 0, processing: 0, sent: 0, failed: 0, bounced: 0,
+        delivered: 0, soft_bounce: 0, hard_bounce: 0,
       });
 
       req.query = { limit: '10', offset: '0' };
@@ -76,6 +77,7 @@ describe('JobController', () => {
       jobRepoMock.count.mockResolvedValue(1);
       emailLogRepoMock.getStatsByJobId.mockResolvedValue({
         total_logs: 5, pending: 0, processing: 0, sent: 4, failed: 1, bounced: 0,
+        delivered: 0, soft_bounce: 0, hard_bounce: 0,
       });
 
       await JobController.getJobs(req as Request, res as Response);
@@ -94,6 +96,7 @@ describe('JobController', () => {
       jobRepoMock.count.mockResolvedValue(1);
       emailLogRepoMock.getStatsByJobId.mockResolvedValue({
         total_logs: 5, pending: 0, processing: 0, sent: 5, failed: 0, bounced: 0,
+        delivered: 0, soft_bounce: 0, hard_bounce: 0,
       });
 
       await JobController.getJobs(req as Request, res as Response);

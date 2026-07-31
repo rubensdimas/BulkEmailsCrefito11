@@ -1,11 +1,13 @@
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import StatusPanel from '../components/StatusPanel/StatusPanel';
 import { useJobStatus } from '../hooks/useJobStatus';
 import type { JobStatus } from '../services/api';
+import EmailStatusTable from '../components/EmailStatusTable/EmailStatusTable';
 
 export function StatusPage() {
   const { jobId } = useParams<{ jobId: string }>();
+  const [page, setPage] = useState(1);
 
   // Stable callbacks — won't trigger hook dependency cascades
   const handleComplete = useCallback((result: JobStatus) => {
@@ -28,6 +30,7 @@ export function StatusPage() {
     pollInterval: 2000,
     onComplete: handleComplete,
     onError: handleError,
+    page,
   });
 
   if (!jobId) {
@@ -57,7 +60,7 @@ export function StatusPage() {
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <header className="bg-white shadow-sm">
-        <div className="max-w-4xl mx-auto px-4 py-6 flex items-center justify-between">
+        <div className="max-w-6xl mx-auto px-4 py-6 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <Link
               to="/"
@@ -86,7 +89,7 @@ export function StatusPage() {
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto px-4 py-8">
+      <main className="max-w-6xl mx-auto px-4 py-8">
         {/* Status Panel */}
         <StatusPanel
           status={status}
@@ -95,6 +98,12 @@ export function StatusPage() {
           error={error}
           onRefresh={refresh}
           onStopPolling={stopPolling}
+        />
+
+        <EmailStatusTable
+          emails={status?.emails || []}
+          pagination={status?.pagination}
+          onPageChange={setPage}
         />
 
         {/* Completion message */}

@@ -1,11 +1,8 @@
 import { sendEmail } from "./processors";
-import { getTransporter, getSenderInfo } from "../config/smtp";
 import { isDatabaseReady } from "../services/databaseService";
+import { sendViaMailgrid } from "../services/mailgridService";
 
-jest.mock("../config/smtp", () => ({
-  getTransporter: jest.fn(),
-  getSenderInfo: jest.fn(),
-}));
+jest.mock("../services/mailgridService", () => ({ sendViaMailgrid: jest.fn() }));
 
 jest.mock("../services/databaseService", () => ({
   isDatabaseReady: jest.fn(),
@@ -15,19 +12,10 @@ jest.mock("../services/databaseService", () => ({
 }));
 
 describe("sendEmail institutional template", () => {
-  const sendMail = jest.fn();
-
   beforeEach(() => {
     jest.clearAllMocks();
     (isDatabaseReady as jest.Mock).mockReturnValue(false);
-    (getSenderInfo as jest.Mock).mockReturnValue({
-      email: "sender@example.com",
-      name: "CREFITO11",
-    });
-    (getTransporter as jest.Mock).mockReturnValue({
-      sendMail,
-    });
-    sendMail.mockResolvedValue({ messageId: "message-1" });
+    (sendViaMailgrid as jest.Mock).mockResolvedValue({ messageId: "mailgrid-1" });
   });
 
   it("should wrap the HTML body with the institutional template before sending", async () => {
@@ -39,37 +27,27 @@ describe("sendEmail institutional template", () => {
       campaignId: "campaign-1",
     });
 
-    expect(sendMail).toHaveBeenCalledWith(
+    expect(sendViaMailgrid).toHaveBeenCalledWith(
+      expect.objectContaining({ host: "" }),
       expect.objectContaining({
         to: "dest@example.com",
         subject: "Aviso",
-        html: expect.stringContaining("CREFITO-11"),
+        html: expect.stringContaining("CREFITO11"),
         text: expect.stringContaining("Ola Maria"),
       }),
     );
-    expect(sendMail.mock.calls[0][0].html).toContain("<p>Ola Maria</p>");
-    expect(sendMail.mock.calls[0][0].html).toContain("Mensagem automatica enviada pelo sistema BulkMail Pro");
+    expect((sendViaMailgrid as jest.Mock).mock.calls[0][1].html).toContain("<p>Ola Maria</p>");
+    expect((sendViaMailgrid as jest.Mock).mock.calls[0][1].html).toContain("Mensagem enviada automaticamente.");
   });
 
-  it("should include CID logo attachment when the default asset is available", async () => {
+  it("should use textual institutional header without a CID attachment", async () => {
     await sendEmail({
       to: "dest@example.com",
       subject: "Aviso",
       html: "<p>Conteudo</p>",
     });
 
-    expect(sendMail).toHaveBeenCalledWith(
-      expect.objectContaining({
-        attachments: expect.arrayContaining([
-          expect.objectContaining({
-            filename: "CREFITO 11 - Marca - Pos Completa.png",
-            cid: "crefito11-logo@bulkmail-pro",
-            contentType: "image/png",
-          }),
-        ]),
-      }),
-    );
-    expect(sendMail.mock.calls[0][0].html).toContain("cid:crefito11-logo@bulkmail-pro");
-    expect(sendMail.mock.calls[0][0].html).not.toContain('src="assets/');
+    expect((sendViaMailgrid as jest.Mock).mock.calls[0][1].html).toContain("CREFITO11");
+    expect((sendViaMailgrid as jest.Mock).mock.calls[0][1].html).not.toContain("cid:");
   });
 });

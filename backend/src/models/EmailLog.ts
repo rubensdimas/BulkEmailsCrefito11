@@ -10,6 +10,9 @@ export type EmailLogStatus =
   | 'pending' 
   | 'processing' 
   | 'sent' 
+  | 'delivered'
+  | 'soft_bounce'
+  | 'hard_bounce'
   | 'failed' 
   | 'bounced';
 
@@ -27,6 +30,14 @@ export interface EmailLog {
   error_message: string | null;
   error_code: string | null;
   unique_hash: string;
+  mailgrid_message_id: string | null;
+  delivered_at: Date | null;
+  mailgrid_sent_at: Date | null;
+  mailgrid_event_at: Date | null;
+  webhook_received_at: Date | null;
+  mailgrid_status_code: number | null;
+  mailgrid_status_message: string | null;
+  mailgrid_payload: Record<string, unknown> | null;
   sent_at: Date | null;
   opened_at: Date | null;
   clicked_at: Date | null;
@@ -60,7 +71,34 @@ export interface UpdateEmailLogInput {
   clicked_at?: Date | null;
   bounces_at?: Date | null;
   retry_count?: number;
+  mailgrid_message_id?: string | null;
+  delivered_at?: Date | null;
+  mailgrid_sent_at?: Date | null;
+  mailgrid_event_at?: Date | null;
+  webhook_received_at?: Date | null;
+  mailgrid_status_code?: number | null;
+  mailgrid_status_message?: string | null;
+  mailgrid_payload?: Record<string, unknown> | null;
 }
+
+export interface MailgridWebhookUpdate {
+  status: Extract<EmailLogStatus, 'delivered' | 'soft_bounce' | 'hard_bounce'>;
+  statusCode: 0 | 1 | 2;
+  statusMessage: string | null;
+  sentAt: Date | null;
+  eventAt: Date | null;
+  receivedAt: Date;
+  payload: Record<string, unknown>;
+}
+
+export const shouldApplyMailgridWebhookEvent = (
+  currentEventAt: Date | null,
+  incomingEventAt: Date | null
+): boolean => {
+  if (!currentEventAt) return true;
+  if (!incomingEventAt) return false;
+  return incomingEventAt.getTime() >= currentEventAt.getTime();
+};
 
 /**
  * EmailLog filter options
@@ -86,6 +124,9 @@ export interface EmailStats {
   sent: number;
   failed: number;
   bounced: number;
+  delivered: number;
+  soft_bounce: number;
+  hard_bounce: number;
 }
 
 /**
@@ -102,6 +143,14 @@ export interface EmailLogRow {
   error_message: string | null;
   error_code: string | null;
   unique_hash: string;
+  mailgrid_message_id: string | null;
+  delivered_at: Date | null;
+  mailgrid_sent_at: Date | null;
+  mailgrid_event_at: Date | null;
+  webhook_received_at: Date | null;
+  mailgrid_status_code: number | null;
+  mailgrid_status_message: string | null;
+  mailgrid_payload: Record<string, unknown> | null;
   sent_at: Date | null;
   opened_at: Date | null;
   clicked_at: Date | null;
@@ -125,6 +174,14 @@ export const emailLogFromRow = (row: EmailLogRow): EmailLog => ({
   error_message: row.error_message,
   error_code: row.error_code,
   unique_hash: row.unique_hash,
+  mailgrid_message_id: row.mailgrid_message_id,
+  delivered_at: row.delivered_at,
+  mailgrid_sent_at: row.mailgrid_sent_at,
+  mailgrid_event_at: row.mailgrid_event_at,
+  webhook_received_at: row.webhook_received_at,
+  mailgrid_status_code: row.mailgrid_status_code,
+  mailgrid_status_message: row.mailgrid_status_message,
+  mailgrid_payload: row.mailgrid_payload,
   sent_at: row.sent_at,
   opened_at: row.opened_at,
   clicked_at: row.clicked_at,

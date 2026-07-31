@@ -13,6 +13,7 @@ import sendRoutes from './routes/sendRoutes';
 import statusRoutes from './routes/statusRoutes';
 import jobRoutes from './routes/jobRoutes';
 import configRoutes from './routes/configRoutes';
+import webhookRoutes from './routes/webhookRoutes';
 import { httpErrorHandler, notFoundHandler } from './middlewares/errorHandler';
 
 // Load environment variables
@@ -37,6 +38,7 @@ app.use('/api/send', sendRoutes);
 app.use('/api/status', statusRoutes);
 app.use('/api/jobs', jobRoutes);
 app.use('/api/config', configRoutes);
+app.use('/api/webhooks', webhookRoutes);
 
 /**
  * Health check endpoint

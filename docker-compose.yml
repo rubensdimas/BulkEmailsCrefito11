@@ -53,11 +53,12 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-bulkmail}
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      SMTP_HOST: ${SMTP_HOST:-smtp.mailtrap.io}
-      SMTP_PORT: ${SMTP_PORT:-2525}
-      SMTP_USER: ${SMTP_USER}
-      SMTP_PASS: ${SMTP_PASS}
-      SMTP_SENDER: ${SMTP_SENDER:-noreply@bulkmail.com}
+      MAILGRID_HOST: ${MAILGRID_HOST}
+      MAILGRID_USER: ${MAILGRID_USER}
+      MAILGRID_PASS: ${MAILGRID_PASS}
+      MAILGRID_SENDER: ${MAILGRID_SENDER:-noreply@bulkmail.com}
+      MAILGRID_SENDER_NAME: ${MAILGRID_SENDER_NAME:-BulkMail Pro}
+      MAILGRID_WEBHOOK_TOKEN: ${MAILGRID_WEBHOOK_TOKEN:-}
     ports:
       - "3000:3000"
     volumes:
@@ -113,11 +114,11 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-bulkmail}
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      SMTP_HOST: ${SMTP_HOST:-smtp.mailtrap.io}
-      SMTP_PORT: ${SMTP_PORT:-2525}
-      SMTP_USER: ${SMTP_USER}
-      SMTP_PASS: ${SMTP_PASS}
-      SMTP_SENDER: ${SMTP_SENDER:-noreply@bulkmail.com}
+      MAILGRID_HOST: ${MAILGRID_HOST}
+      MAILGRID_USER: ${MAILGRID_USER}
+      MAILGRID_PASS: ${MAILGRID_PASS}
+      MAILGRID_SENDER: ${MAILGRID_SENDER:-noreply@bulkmail.com}
+      MAILGRID_SENDER_NAME: ${MAILGRID_SENDER_NAME:-BulkMail Pro}
     volumes:
       - ./backend:/app
       - /app/node_modules

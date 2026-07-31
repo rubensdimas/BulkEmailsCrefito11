@@ -71,6 +71,10 @@ describe('idempotencyService', () => {
       expect(wasEmailSent('sent')).toBe(true);
     });
 
+    it.each(['delivered', 'soft_bounce', 'hard_bounce'])('should treat %s as already sent', (status) => {
+      expect(wasEmailSent(status)).toBe(true);
+    });
+
     it('should return false for other statuses', () => {
       expect(wasEmailSent('failed')).toBe(false);
       expect(wasEmailSent('pending')).toBe(false);

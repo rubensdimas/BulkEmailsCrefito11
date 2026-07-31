@@ -1,7 +1,7 @@
 /**
  * JobStatusService
  * Centralized logic for computing the real-time status of a Job
- * based on email_logs terminal states (sent, failed, bounced).
+ * based on email_logs terminal states (sent, delivered, failed and bounces).
  *
  * This resolves the divergence between GET /api/jobs (static DB column)
  * and GET /api/status/:id (dynamic calculation).
@@ -27,7 +27,7 @@ export interface ComputedJobStatus {
  * Compute the real-time status of a job using email log statistics.
  *
  * Rules:
- * 1. If all emails reached a terminal state (sent + failed + bounced >= valid_recipients)
+ * 1. If all emails reached a terminal state (sent/delivered + failed/bounced >= valid_recipients)
  *    → status = 'completed'
  * 2. If the DB status is explicitly 'failed' (e.g. SMTP hard error) → keep 'failed'
  * 3. If there are emails actively being processed → 'processing'
@@ -39,10 +39,10 @@ export interface ComputedJobStatus {
 export function computeJobStatus(job: Job, stats: EmailStats): ComputedJobStatus {
   const total = job.valid_recipients;
 
-  const completedCount = stats.sent;
-  const failedCount = stats.failed;
+  const completedCount = stats.sent + stats.delivered;
+  const failedCount = stats.failed + stats.bounced;
   const bouncedCount = stats.bounced;
-  const terminalCount = completedCount + failedCount + bouncedCount;
+  const terminalCount = completedCount + failedCount;
   const processingCount = stats.processing;
   const waitingCount = stats.pending;
 

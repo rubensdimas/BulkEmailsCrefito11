@@ -4,8 +4,7 @@
  */
 import { Knex } from 'knex';
 import { SystemConfigRepository } from '../repositories/systemConfigRepository';
-import { SmtpConfig } from '../models/SystemConfig';
-import { getSMTPConfig, SMTPConfig } from '../config/smtp';
+import { MailgridConfig } from '../models/SystemConfig';
 
 export class ConfigService {
   private repository: SystemConfigRepository;
@@ -15,44 +14,54 @@ export class ConfigService {
   }
 
   /**
-   * Get SMTP configuration from database or environment
+ * Get Mailgrid configuration from database or environment
    */
-  async getSmtpConfig(): Promise<SMTPConfig> {
+  async getMailgridConfig(): Promise<MailgridConfig> {
     try {
       const dbConfig = await this.repository.getByKey('smtp');
       
       if (dbConfig && dbConfig.value) {
-        const smtp = dbConfig.value as SmtpConfig;
+        const smtp = dbConfig.value as MailgridConfig & { port?: number; secure?: boolean };
         return {
           host: smtp.host,
-          port: smtp.port,
-          secure: smtp.secure,
-          auth: {
-            user: smtp.user,
-            pass: smtp.pass
-          },
-          sender: smtp.from_address,
-          senderName: smtp.from_name || 'BulkMail Pro'
+          user: smtp.user,
+          pass: smtp.pass,
+          from_address: smtp.from_address,
+          from_name: smtp.from_name || 'BulkMail Pro',
+          webhook_token: smtp.webhook_token || process.env.MAILGRID_WEBHOOK_TOKEN || '',
         };
       }
     } catch (error) {
-      console.error('Error fetching SMTP config from DB, falling back to ENV:', error);
+      console.error('Error fetching Mailgrid config from DB, falling back to ENV:', error);
     }
 
     // Fallback to environment variables
-    return getSMTPConfig();
+    return {
+      host: process.env.MAILGRID_HOST || process.env.SMTP_HOST || '',
+      user: process.env.MAILGRID_USER || process.env.SMTP_USER || '',
+      pass: process.env.MAILGRID_PASS || process.env.SMTP_PASS || '',
+      from_address: process.env.MAILGRID_SENDER || process.env.SMTP_SENDER || process.env.MAILGRID_USER || process.env.SMTP_USER || '',
+      from_name: process.env.MAILGRID_SENDER_NAME || process.env.SMTP_SENDER_NAME || 'BulkMail Pro',
+      webhook_token: process.env.MAILGRID_WEBHOOK_TOKEN || '',
+    };
   }
 
   /**
-   * Update SMTP configuration in database
+ * Update Mailgrid configuration in database
    */
-  async updateSmtpConfig(config: SmtpConfig): Promise<void> {
+  async updateMailgridConfig(config: MailgridConfig): Promise<void> {
     await this.repository.set({
       key: 'smtp',
-      value: config
+      value: {
+        host: config.host,
+        user: config.user,
+        pass: config.pass,
+        from_address: config.from_address,
+        from_name: config.from_name || 'BulkMail Pro',
+        webhook_token: config.webhook_token || '',
+      }
     });
   }
-
   /**
    * Get generic configuration by key
    */

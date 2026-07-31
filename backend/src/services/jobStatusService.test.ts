@@ -39,6 +39,9 @@ function makeStats(overrides: Partial<EmailStats> = {}): EmailStats {
     sent: 0,
     failed: 0,
     bounced: 0,
+    delivered: 0,
+    soft_bounce: 0,
+    hard_bounce: 0,
     ...overrides,
   };
 }
@@ -139,7 +142,7 @@ describe('JobStatusService', () => {
       const result = computeJobStatus(job, stats);
 
       expect(result.completedCount).toBe(5);
-      expect(result.failedCount).toBe(3);
+      expect(result.failedCount).toBe(5);
       expect(result.bouncedCount).toBe(2);
       expect(result.processingCount).toBe(4);
       expect(result.waitingCount).toBe(6);

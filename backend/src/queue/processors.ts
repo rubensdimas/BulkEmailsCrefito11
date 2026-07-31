@@ -3,22 +3,21 @@
  * Handles email sending, throttling, retry logic
  * Updated with persistence and idempotency
  */
-import { createHash } from "crypto";
 import {
   EmailJobData,
   EmailJobResult,
   RETRYABLE_ERROR_CODES,
   NON_RETRYABLE_ERROR_CODES,
 } from "./emailQueue";
-import { getTransporter, getSenderInfo } from "../config/smtp";
 import {
   getJobRepository,
   getEmailLogRepository,
   getConfigService,
   isDatabaseReady,
 } from "../services/databaseService";
-import { generateUniqueHash } from "../services/idempotencyService";
+import { generateUniqueHash, wasEmailSent } from "../services/idempotencyService";
 import { renderInstitutionalEmailTemplate } from "../services/emailTemplateService";
+import { MailgridError, sendViaMailgrid } from "../services/mailgridService";
 
 interface BullJobData {
   id?: string | number;
@@ -69,22 +68,10 @@ export const classifyError = (errorMessage: string): ErrorType => {
 const MAX_RETRY_ATTEMPTS = 3;
 
 // Default sender
-const DEFAULT_FROM = process.env.SMTP_SENDER || "noreply@bulkmail.com";
+const DEFAULT_FROM = process.env.MAILGRID_SENDER || process.env.SMTP_SENDER || "noreply@bulkmail.com";
 
 /**
- * Generate unique hash for idempotency (legacy function)
- */
-export const generateIdempotencyHash = (
-  to: string,
-  subject: string,
-  campaignId?: string,
-): string => {
-  const data = `${to.toLowerCase()}|${subject}|${campaignId || ""}`;
-  return createHash("sha256").update(data).digest("hex").substring(0, 16);
-};
-
-/**
- * Send email via SMTP
+ * Send email via Mailgrid API
  */
 export const sendEmail = async (
   jobData: EmailJobData,
@@ -96,35 +83,8 @@ export const sendEmail = async (
     text,
     from,
     replyTo,
-    templateId,
     variables,
-    campaignId,
   } = jobData;
-
-  // Try to get dynamic config from DB
-  let smtpConfig;
-  let sender;
-
-  if (isDatabaseReady()) {
-    try {
-      const configService = getConfigService();
-      smtpConfig = await configService.getSmtpConfig();
-      sender = {
-        email: smtpConfig.sender || smtpConfig.auth.user,
-        name: smtpConfig.senderName || "BulkMail Pro",
-      };
-    } catch (err) {
-      console.warn(
-        "⚠️  Failed to load dynamic SMTP config, using defaults:",
-        err,
-      );
-    }
-  }
-
-  const transporter = getTransporter(smtpConfig);
-  if (!sender) {
-    sender = getSenderInfo();
-  }
 
   // Validate required fields
   if (!to || !subject || (!html && !text)) {
@@ -135,9 +95,6 @@ export const sendEmail = async (
       attempts: 1,
     };
   }
-
-  // Generate idempotency hash
-  const idempotencyKey = generateIdempotencyHash(to, subject, campaignId);
 
   // Process template variables if present
   let processedHtml = html;
@@ -157,19 +114,23 @@ export const sendEmail = async (
   });
 
   try {
-    const info = await transporter.sendMail({
-      from: from || `"${sender.name}" <${sender.email}>`,
+    const config = isDatabaseReady()
+      ? await getConfigService().getMailgridConfig()
+      : {
+          host: process.env.MAILGRID_HOST || process.env.SMTP_HOST || "",
+          user: process.env.MAILGRID_USER || process.env.SMTP_USER || "",
+          pass: process.env.MAILGRID_PASS || process.env.SMTP_PASS || "",
+          from_address: process.env.MAILGRID_SENDER || process.env.SMTP_SENDER || "",
+          from_name: process.env.MAILGRID_SENDER_NAME || process.env.SMTP_SENDER_NAME || "BulkMail Pro",
+        };
+    const info = await sendViaMailgrid(config, {
+      from: from || config.from_address,
+      fromName: config.from_name,
       to,
       subject,
       html: templatedEmail.html,
       text: templatedEmail.text,
-      attachments: templatedEmail.attachments,
       replyTo,
-      headers: {
-        "X-Idempotency-Key": idempotencyKey,
-        "X-Campaign-Id": campaignId || "unknown",
-        "X-Template-Id": templateId || "custom",
-      },
     });
 
     console.log(`📧 Email sent to ${to}: ${info.messageId}`);
@@ -186,7 +147,9 @@ export const sendEmail = async (
     console.error(`❌ Failed to send email to ${to}:`, errorMessage);
 
     // Classify error for retry strategy
-    const errorType = classifyError(errorMessage);
+    const errorType = error instanceof MailgridError
+      ? (error.retryable ? "temporary" : "permanent")
+      : classifyError(errorMessage);
 
     // For permanent errors, don't retry - return failure directly
     if (errorType === "permanent") {
@@ -243,7 +206,7 @@ export const processEmailJob = async (
       );
       const existing = await emailLogRepo.findByUniqueHash(uniqueHash);
 
-      if (existing && existing.status === "sent") {
+      if (existing && wasEmailSent(existing.status)) {
         console.log(`⏭️  Skipping duplicate email to ${data.to}`);
         return {
           success: true,
@@ -280,7 +243,7 @@ export const processEmailJob = async (
 
       if (existing) {
         if (result.success) {
-          await emailLogRepo.markAsSent(existing.id);
+          await emailLogRepo.markAsSent(existing.id, result.messageId);
 
           // Increment job completed count
           if (jobRepo) {

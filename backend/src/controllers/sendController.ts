@@ -9,21 +9,15 @@ import {
   addEmailJob,
   addBulkEmailJobs,
   EmailJobData,
-  getEmailQueue,
 } from "../queue/emailQueue";
 import {
   getJobRepository,
   getEmailLogRepository,
   isDatabaseReady,
 } from "../services/databaseService";
-import { generateUniqueHash } from "../services/idempotencyService";
+import { generateUniqueHash, wasEmailSent } from "../services/idempotencyService";
 import { CreateJobInput, Job } from "../models/Job";
 import { CreateEmailLogInput } from "../models/EmailLog";
-
-type BullJobData = {
-  id?: string | number;
-  data?: EmailJobData;
-};
 
 // Request interface for sending emails
 export interface SendEmailRequest {
@@ -61,8 +55,8 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 /**
  * Default sender address
  */
-const DEFAULT_FROM = process.env.SMTP_SENDER || "noreply@bulkmail.com";
-const DEFAULT_FROM_NAME = process.env.SMTP_SENDER_NAME || "BulkMail Pro";
+const DEFAULT_FROM = process.env.MAILGRID_SENDER || process.env.SMTP_SENDER || "noreply@bulkmail.com";
+const DEFAULT_FROM_NAME = process.env.MAILGRID_SENDER_NAME || process.env.SMTP_SENDER_NAME || "BulkMail Pro";
 
 /**
  * Validate and clean email list
@@ -178,7 +172,7 @@ export const sendEmails = async (
           );
           const existing = await emailLogRepo.findByUniqueHash(uniqueHash);
 
-          if (existing && existing.status === "sent") {
+          if (existing && wasEmailSent(existing.status)) {
             duplicates.push(email);
           } else {
             toSend.push(email);

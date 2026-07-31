@@ -1,16 +1,41 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type ChangeEvent, type FormEvent } from 'react';
+import axios from 'axios';
 import { Link } from 'react-router-dom';
-import { getSmtpConfig, updateSmtpConfig, testSmtpConfig, SmtpConfig } from '../services/api';
+import { getMailgridConfig, updateMailgridConfig, testMailgridConfig, MailgridConfig } from '../services/api';
+
+interface ApiErrorResponse {
+  error?: string;
+  details?: string;
+}
+
+const getErrorMessage = (error: unknown, fields: Array<keyof ApiErrorResponse> = ['error']): string => {
+  if (axios.isAxiosError<ApiErrorResponse>(error)) {
+    for (const field of fields) {
+      const value = error.response?.data?.[field];
+      if (value) {
+        return value;
+      }
+    }
+
+    return error.message;
+  }
+
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return 'Erro desconhecido';
+};
 
 export function SettingsPage() {
-  const [config, setConfig] = useState<SmtpConfig>({
+  const [config, setConfig] = useState<MailgridConfig>({
     host: '',
-    port: 587,
     user: '',
     pass: '',
-    secure: false,
     from_address: '',
-    from_name: ''
+    from_name: '',
+    webhook_token: '',
+    webhook_token_configured: false,
   });
 
   const [testEmail, setTestEmail] = useState('');
@@ -20,53 +45,61 @@ export function SettingsPage() {
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
 
   useEffect(() => {
+    const abortController = new AbortController();
+    let isMounted = true;
+
     async function loadConfig() {
       try {
-        const response = await getSmtpConfig();
-        if (response.success) {
+        const response = await getMailgridConfig(abortController.signal);
+        if (isMounted && response.success) {
           setConfig({
             ...response.data,
             pass: '' // Don't show password
           });
         }
-      } catch (error: any) {
-        setMessage({ type: 'error', text: 'Erro ao carregar configurações: ' + (error.response?.data?.error || error.message) });
+      } catch (error) {
+        if (isMounted && !axios.isCancel(error)) {
+          setMessage({ type: 'error', text: 'Erro ao carregar configurações: ' + getErrorMessage(error) });
+        }
       } finally {
-        setIsLoading(false);
+        if (isMounted) {
+          setIsLoading(false);
+        }
       }
     }
     loadConfig();
+
+    return () => {
+      isMounted = false;
+      abortController.abort();
+    };
   }, []);
 
-  useEffect(() => {
-    // Auto-configure secure field based on common ports
-    if (config.port === 465) {
-      if (!config.secure) setConfig(prev => ({ ...prev, secure: true }));
-    } else if ([587, 25, 2525].includes(config.port)) {
-      if (config.secure) setConfig(prev => ({ ...prev, secure: false }));
-    }
-  }, [config.port]);
-
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value, type, checked } = e.target;
+  const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
     setConfig(prev => ({
       ...prev,
-      [name]: type === 'checkbox' ? checked : (name === 'port' ? parseInt(value) || 0 : value)
+      [name]: value
     }));
   };
 
-  const handleSave = async (e: React.FormEvent) => {
+  const handleSave = async (e: FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
     setMessage(null);
     try {
-      const response = await updateSmtpConfig(config);
+      const response = await updateMailgridConfig(config);
       if (response.success) {
         setMessage({ type: 'success', text: 'Configurações salvas com sucesso!' });
-        setConfig(prev => ({ ...prev, pass: '' })); // Clear password field
+        setConfig(prev => ({
+          ...prev,
+          pass: '',
+          webhook_token: '',
+          webhook_token_configured: prev.webhook_token_configured || Boolean(config.webhook_token),
+        }));
       }
-    } catch (error: any) {
-      setMessage({ type: 'error', text: 'Erro ao salvar: ' + (error.response?.data?.error || error.message) });
+    } catch (error) {
+      setMessage({ type: 'error', text: 'Erro ao salvar: ' + getErrorMessage(error) });
     } finally {
       setIsSaving(false);
     }
@@ -80,12 +113,12 @@ export function SettingsPage() {
     setIsTesting(true);
     setMessage(null);
     try {
-      const response = await testSmtpConfig(config, testEmail);
+      const response = await testMailgridConfig(config, testEmail);
       if (response.success) {
         setMessage({ type: 'success', text: 'Email de teste enviado com sucesso! Verifique sua caixa de entrada.' });
       }
-    } catch (error: any) {
-      setMessage({ type: 'error', text: 'Falha no teste: ' + (error.response?.data?.details || error.response?.data?.error || error.message) });
+    } catch (error) {
+      setMessage({ type: 'error', text: 'Falha no teste: ' + getErrorMessage(error, ['details', 'error']) });
     } finally {
       setIsTesting(false);
     }
@@ -105,7 +138,7 @@ export function SettingsPage() {
         <div className="max-w-4xl mx-auto px-4 py-6 flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Configurações</h1>
-            <p className="text-gray-600 mt-1">Gerencie as credenciais de envio SMTP</p>
+            <p className="text-gray-600 mt-1">Gerencie as credenciais da API Mailgrid</p>
           </div>
           <div className="flex gap-3">
             <Link
@@ -145,11 +178,11 @@ export function SettingsPage() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
           <div className="md:col-span-2">
             <section className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-6">Configuração do Servidor SMTP</h2>
+              <h2 className="text-lg font-semibold text-gray-900 mb-6">Configuração Mailgrid</h2>
               
               <form onSubmit={handleSave} className="space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-                  <div className="sm:col-span-3">
+                <div>
+                  <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Servidor (Host)</label>
                     <input
                       type="text"
@@ -157,19 +190,7 @@ export function SettingsPage() {
                       value={config.host}
                       onChange={handleChange}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500"
-                      placeholder="smtp.exemplo.com"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Porta</label>
-                    <input
-                      type="number"
-                      name="port"
-                      value={config.port}
-                      onChange={handleChange}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500"
-                      placeholder="587"
+                      placeholder="smtpxxxxxxxx.mailgrid.net.br"
                       required
                     />
                   </div>
@@ -202,20 +223,6 @@ export function SettingsPage() {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    id="secure"
-                    name="secure"
-                    checked={config.secure}
-                    onChange={handleChange}
-                    className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
-                  />
-                  <label htmlFor="secure" className="text-sm text-gray-700 font-medium">
-                    Usar conexão segura (SSL/TLS)
-                  </label>
-                </div>
-
                 <hr className="my-6 border-gray-100" />
                 
                 <h3 className="text-md font-medium text-gray-900 mb-4">Informações do Remetente</h3>
@@ -243,6 +250,38 @@ export function SettingsPage() {
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500"
                       placeholder="Equipe BulkMail"
                     />
+                  </div>
+                </div>
+
+                <hr className="my-6 border-gray-100" />
+
+                <h3 className="text-md font-medium text-gray-900 mb-4">Webhook Mailgrid</h3>
+
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">URL do Webhook</label>
+                    <input
+                      type="text"
+                      value="https://bulkmail.crefito.gov.br/api/webhooks/mailgrid"
+                      readOnly
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-600"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Token Webhook</label>
+                    <input
+                      type="password"
+                      name="webhook_token"
+                      value={config.webhook_token}
+                      onChange={handleChange}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500"
+                      placeholder={config.webhook_token_configured ? 'Token configurado' : 'Informe o token gerado pela Mailgrid'}
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      {config.webhook_token_configured
+                        ? 'Existe um token configurado. Deixe em branco para mantê-lo.'
+                        : 'Use o mesmo token exibido no cadastro do webhook no painel Mailgrid.'}
+                    </p>
                   </div>
                 </div>
 
@@ -284,7 +323,7 @@ export function SettingsPage() {
                   disabled={isTesting}
                   className="w-full py-2 bg-gray-100 text-gray-700 font-medium rounded-lg hover:bg-gray-200 disabled:opacity-50 transition-colors"
                 >
-                  {isTesting ? 'Enviando teste...' : 'Enviar Email de Teste'}
+                  {isTesting ? 'Enviando teste...' : 'Enviar Email de Teste Mailgrid'}
                 </button>
               </div>
 
@@ -293,18 +332,11 @@ export function SettingsPage() {
                   <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                     <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
                   </svg>
-                  Configuração Recomendada
+                  Dados da Mailgrid
                 </h4>
                 <div className="text-xs text-blue-800 space-y-2 leading-relaxed">
-                  <p>
-                    <strong>Porta 465:</strong> SSL/TLS implícito. O checkbox deve estar <strong>marcado</strong>.
-                  </p>
-                  <p>
-                    <strong>Porta 587 ou 2525:</strong> STARTTLS (recomendado). O checkbox deve estar <strong>desmarcado</strong>.
-                  </p>
-                  <p>
-                    <strong>Gmail:</strong> Use a porta 587 e crie uma "Senha de App" nas configurações da sua conta Google.
-                  </p>
+                  <p>Use o host, usuário e senha SMTP informados no painel da Mailgrid.</p>
+                  <p>Os envios são feitos pela API segura da Mailgrid; porta e SSL não precisam ser configurados aqui.</p>
                 </div>
               </div>
             </section>
