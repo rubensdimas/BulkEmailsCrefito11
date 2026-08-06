@@ -13,13 +13,13 @@
 # - if a previous Postgres volume exists, preserve it only if it contains real data
 services:
   postgres:
-    image: postgres:alpine3.22
+    image: postgres:14-alphine
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-bulkmail}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bulkmail123}
       POSTGRES_DB: ${POSTGRES_DB:-bulkmail}
     volumes:
-      - postgres_data:/var/lib/postgresql
+      - postgres_data:/var/lib/postgresql/data
     networks:
       - CrefitoNet
     healthcheck:
@@ -152,5 +152,7 @@ networks:
 
 volumes:
   postgres_data:
+    external: true
+    name: postgres_data
   redis_data:
   uploads_data:
