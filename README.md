@@ -343,6 +343,8 @@ npm run dev
 | `MAILGRID_SENDER` | Email remetente | `noreply@bulkmail.com` |
 | `MAILGRID_SENDER_NAME` | Nome do remetente | `BulkMail Pro` |
 | `MAILGRID_WEBHOOK_TOKEN` | Token Bearer para validar webhooks Mailgrid | - |
+| `CREFITO11_LOGO_PATH` | Caminho da logo montada no backend | `/assets/logos/CREFITO 11 - Marca - Neg 2 Completa.png` |
+| `CREFITO11_LOGO_URL` | URL pública absoluta usada no template de e-mail | `http://localhost:5173/api/assets/crefito11-email-logo.png` |
 | `THROTTLE_RATE` | Taxa envio/min | `50` |
 
 ## API Endpoints

@@ -1,10 +1,9 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import FileUpload from '../components/FileUpload/FileUpload';
 import EmailForm from '../components/EmailForm/EmailForm';
 import { useUpload } from '../hooks/useUpload';
 import { useEmailSubmit } from '../hooks/useEmailSubmit';
-import { getJobStatus } from '../services/api';
 import { mergeUniqueEmails } from '../utils/emailValidator';
 
 export function HomePage() {
@@ -17,22 +16,6 @@ export function HomePage() {
 
   const validEmails = mergeUniqueEmails(uploadedEmails, manualEmails);
 
-  // Check for existing job in progress after refresh
-  useEffect(() => {
-    const lastJobId = localStorage.getItem('last_bulk_email_job_id');
-    if (lastJobId) {
-      // Check if job is still active
-      getJobStatus(lastJobId).then(status => {
-        if (status && (status.status === 'processing' || status.status === 'pending')) {
-          navigate(`/status/${lastJobId}`);
-        }
-      }).catch(() => {
-        // If error (e.g. 404), clean up localStorage
-        localStorage.removeItem('last_bulk_email_job_id');
-      });
-    }
-  }, [navigate]);
-  
   const { upload, isLoading: isUploading, error: uploadError, progress } = useUpload({
     onSuccess: (response) => {
       const validEmailsList = response.emails?.valid || [];

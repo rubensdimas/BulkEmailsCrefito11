@@ -23,6 +23,8 @@ dotenv.config();
 // Create Express app
 const app: Express = express();
 const PORT = process.env.PORT || 3000;
+const CREFITO11_LOGO_PATH = process.env.CREFITO11_LOGO_PATH ||
+  '/assets/logos/CREFITO 11 - Marca - Neg 2 Completa.png';
 
 // Middleware
 app.use(cors());
@@ -31,6 +33,11 @@ app.use(express.urlencoded({ extended: true }));
 
 // Set static folder for uploads
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+
+app.get('/api/assets/crefito11-email-logo.png', (_req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  res.sendFile(path.resolve(CREFITO11_LOGO_PATH));
+});
 
 // API Routes
 app.use('/api/upload', uploadRoutes);

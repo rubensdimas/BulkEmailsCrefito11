@@ -1,0 +1,33 @@
+schema: 1
+story: "1.7"
+story_title: "Exibição de e-mails inválidos após validação XLSX"
+gate: PASS
+status_reason: "Todos os quatro critérios estão implementados e cobertos; lint, build e a suíte E2E Chromium passaram."
+reviewer: "Quinn (Test Architect)"
+updated: "2026-08-06T16:53:03-03:00"
+quality_score: 100
+top_issues: []
+waiver:
+  active: false
+evidence:
+  tests_reviewed: 15
+  risks_identified: 0
+  trace:
+    ac_covered: [1, 2, 3, 4]
+    ac_gaps: []
+nfr_validation:
+  security:
+    status: PASS
+    notes: "Conteúdo retornado pela API é renderizado como texto pelo React."
+  performance:
+    status: PASS
+    notes: "Sem impacto material no fluxo de upload."
+  reliability:
+    status: PASS
+    notes: "Novo upload substitui deterministicamente o estado anterior."
+  maintainability:
+    status: PASS
+    notes: "Estado e cobertura E2E permanecem localizados no frontend."
+recommendations:
+  immediate: []
+  future: []

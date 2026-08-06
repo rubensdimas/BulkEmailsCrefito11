@@ -22,8 +22,6 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const BASE_URL = 'http://localhost:5173';
-
 /** Helper: get computed background color of an element */
 async function getBgColor(page: Page, selector: string): Promise<string> {
   return page.$eval(selector, (el) => {
@@ -75,7 +73,7 @@ function isLightGray([r, g, b]: [number, number, number]): boolean {
 
 test.describe('Story 1.2 — Form field colors', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto(BASE_URL);
+    await page.goto('/');
     await page.waitForLoadState('networkidle');
   });
 

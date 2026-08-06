@@ -76,6 +76,8 @@ services:
       MAILGRID_SENDER: ${MAILGRID_SENDER:-noreply@bulkmail.com}
       MAILGRID_SENDER_NAME: ${MAILGRID_SENDER_NAME:-BulkMail Pro}
       MAILGRID_WEBHOOK_TOKEN: ${MAILGRID_WEBHOOK_TOKEN:-}
+      CREFITO11_LOGO_PATH: ${CREFITO11_LOGO_PATH:-/assets/logos/CREFITO 11 - Marca - Neg 2 Completa.png}
+      CREFITO11_LOGO_URL: ${CREFITO11_LOGO_URL:-https://bulkmail.crefito.gov.br/api/assets/crefito11-email-logo.png}
     volumes:
       - uploads_data:/app/uploads
       - ./assets:/assets:ro
@@ -113,6 +115,7 @@ services:
       MAILGRID_SENDER_NAME: ${MAILGRID_SENDER_NAME:-BulkMail Pro}
       WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-3}
       THROTTLE_RATE: ${THROTTLE_RATE:-50}
+      CREFITO11_LOGO_URL: ${CREFITO11_LOGO_URL:-https://bulkmail.crefito.gov.br/api/assets/crefito11-email-logo.png}
     volumes:
       - uploads_data:/app/uploads
       - ./assets:/assets:ro

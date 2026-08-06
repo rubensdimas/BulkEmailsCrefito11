@@ -1,5 +1,6 @@
 import {
   renderInstitutionalEmailTemplate,
+  resolveInstitutionalLogoUrl,
   stripHtmlToText,
 } from "./emailTemplateService";
 
@@ -7,13 +8,24 @@ describe("emailTemplateService", () => {
   it("should render institutional header, original body and footer", () => {
     const result = renderInstitutionalEmailTemplate({
       html: "<p>Ola <strong>{{nome}}</strong></p>",
+      logoUrl: "https://bulkmail.example.com/api/assets/crefito11-email-logo.png",
     });
 
     expect(result.html).toContain("CREFITO11");
+    expect(result.html).toContain(
+      'src="https://bulkmail.example.com/api/assets/crefito11-email-logo.png"',
+    );
+    expect(result.html).toContain('alt="CREFITO11"');
     expect(result.html).toContain("<p>Ola <strong>{{nome}}</strong></p>");
     expect(result.html).toContain("Mensagem enviada automaticamente.");
     expect(result.html).not.toContain("cid:");
     expect(result.html).not.toContain('src="assets/');
+  });
+
+  it("should reject unsafe logo URLs and use the production asset URL", () => {
+    expect(resolveInstitutionalLogoUrl("javascript:alert(1)")).toBe(
+      "https://bulkmail.crefito.gov.br/api/assets/crefito11-email-logo.png",
+    );
   });
 
   it("should generate plain text fallback from final institutional content", () => {

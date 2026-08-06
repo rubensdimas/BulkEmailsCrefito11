@@ -65,6 +65,7 @@ export function QuillEditor({
         }
         .quill-editor-wrapper .ql-editor {
           min-height: 200px;
+          background-color: #ffffff;
         }
         .quill-editor-wrapper .ql-editor.ql-blank::before {
           color: #9ca3af;

@@ -72,7 +72,6 @@ export function useJobStatus(options: UseJobStatusOptions): UseJobStatusReturn {
         setStatus(result);
 
         if (result.status === 'completed' || result.status === 'failed') {
-          localStorage.removeItem('last_bulk_email_job_id');
           if (!completionNotifiedRef.current) {
             completionNotifiedRef.current = true;
             onCompleteRef.current?.(result);
@@ -117,8 +116,6 @@ export function useJobStatus(options: UseJobStatusOptions): UseJobStatusReturn {
 
   useEffect(() => {
     if (!jobId || !enabled) return;
-
-    localStorage.setItem('last_bulk_email_job_id', jobId);
 
     startPollingRef.current();
 

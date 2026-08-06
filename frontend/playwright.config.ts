@@ -1,5 +1,8 @@
 import { defineConfig, devices } from '@playwright/test';
 
+const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:5173';
+const devServerPort = new URL(baseURL).port || '5173';
+
 /**
  * Playwright E2E configuration — Story 1.2: bug-fix-form-colors
  *
@@ -17,7 +20,7 @@ export default defineConfig({
   reporter: 'html',
 
   use: {
-    baseURL: 'http://localhost:5173',
+    baseURL,
     trace: 'on-first-retry',
     // Emulate OS dark mode for the critical AC4 test
     colorScheme: 'dark',
@@ -45,8 +48,8 @@ export default defineConfig({
 
   /* Start frontend dev server automatically before tests */
   webServer: {
-    command: 'npm run dev',
-    url: 'http://localhost:5173',
+    command: `npm run dev -- --host 127.0.0.1 --port ${devServerPort}`,
+    url: baseURL,
     reuseExistingServer: !process.env.CI,
     timeout: 60_000,
   },

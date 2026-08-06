@@ -11,9 +11,13 @@ const BRAND = {
     background: "#F4F7F6",
 };
 
+const DEFAULT_LOGO_URL =
+    "https://bulkmail.crefito.gov.br/api/assets/crefito11-email-logo.png";
+
 export interface InstitutionalEmailTemplateInput {
   html: string;
   text?: string;
+  logoUrl?: string;
 }
 
 export interface InstitutionalEmailTemplateResult {
@@ -53,8 +57,26 @@ const buildInstitutionalText = (bodyText: string): string => {
         .join("\n");
 };
 
-const buildInstitutionalHtml = (bodyHtml: string): string => {
-    const logoMarkup = `<strong style="font-size:22px;line-height:28px;color:#ffffff;">${BRAND.name}</strong>`;
+export const resolveInstitutionalLogoUrl = (logoUrl?: string): string => {
+    const candidate =
+        logoUrl?.trim() ||
+        process.env.CREFITO11_LOGO_URL?.trim() ||
+        DEFAULT_LOGO_URL;
+
+    try {
+        const parsed = new URL(candidate);
+        if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+            return parsed.toString();
+        }
+    } catch {
+        // Fall through to the known production URL.
+    }
+
+    return DEFAULT_LOGO_URL;
+};
+
+const buildInstitutionalHtml = (bodyHtml: string, logoUrl: string): string => {
+    const logoMarkup = `<img src="${logoUrl}" alt="CREFITO11" width="260" style="display:block;width:100%;max-width:260px;height:auto;border:0;outline:none;text-decoration:none;">`;
 
     return `<!doctype html>
 <html lang="pt-BR">
@@ -96,12 +118,14 @@ const buildInstitutionalHtml = (bodyHtml: string): string => {
 export const renderInstitutionalEmailTemplate = ({
     html,
     text,
+    logoUrl,
 }: InstitutionalEmailTemplateInput): InstitutionalEmailTemplateResult => {
     const sanitizedBody = sanitizeHtmlContent(html);
     const bodyText = text?.trim() || stripHtmlToText(sanitizedBody);
+    const institutionalLogoUrl = resolveInstitutionalLogoUrl(logoUrl);
 
     return {
-        html: buildInstitutionalHtml(sanitizedBody),
+        html: buildInstitutionalHtml(sanitizedBody, institutionalLogoUrl),
         text: buildInstitutionalText(bodyText),
     };
 };

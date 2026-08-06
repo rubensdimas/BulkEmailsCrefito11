@@ -60,4 +60,33 @@ test.describe('Validação de e-mails após upload XLSX', () => {
     await expect(page.getByText('Emails Encontrados', { exact: false })).toHaveCount(0);
     await expect(page.getByText('Adicione pelo menos um destinatário para continuar')).toBeVisible();
   });
+
+  test('substitui a lista de inválidos ao realizar um novo upload', async ({ page }) => {
+    await page.locator('input[type="file"]').setInputFiles(uploadFixture);
+    await expect(page.getByText('invalid-email', { exact: true })).toBeVisible();
+
+    await page.unroute('**/api/upload');
+    await page.route('**/api/upload', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          emails: {
+            valid: [],
+            invalid: [{ email: 'new-invalid', error: 'Missing domain' }],
+          },
+        }),
+      });
+    });
+
+    await page.locator('input[type="file"]').setInputFiles([]);
+    await page.locator('input[type="file"]').setInputFiles(uploadFixture);
+
+    await expect(page.getByRole('heading', { name: 'E-mails inválidos (1)' })).toBeVisible();
+    await expect(page.getByText('new-invalid', { exact: true })).toBeVisible();
+    await expect(page.getByText('Missing domain', { exact: true })).toBeVisible();
+    await expect(page.getByText('invalid-email', { exact: true })).toHaveCount(0);
+    await expect(page.getByText('missing-domain@', { exact: true })).toHaveCount(0);
+  });
 });
