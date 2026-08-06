@@ -13,7 +13,7 @@
 # - if a previous Postgres volume exists, preserve it only if it contains real data
 services:
   postgres:
-    image: postgres:14-alphine
+    image: postgres:14-alpine
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-bulkmail}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bulkmail123}
