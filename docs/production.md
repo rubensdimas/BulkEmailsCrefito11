@@ -13,6 +13,23 @@ docker service logs --tail 200 bulkmail_worker
 docker service logs --tail 200 bulkmail_backup
 ```
 
+## Falha durante deploy
+
+Se `bulkmail_backend` falhar em `migrate:prod`, consulte primeiro o caminho das migrations e a imagem usada pelo serviço:
+
+```bash
+docker service logs --tail 200 bulkmail_backend
+docker service inspect bulkmail_backend --format '{{.Spec.TaskTemplate.ContainerSpec.Image}}'
+```
+
+Depois de atualizar o código na VPS, execute somente o fluxo normal abaixo. Ele recria as imagens, executa backup e aguarda o readiness; não remova a stack, os volumes ou os secrets para corrigir uma falha de aplicação.
+
+```bash
+./scripts/production/deploy.sh
+```
+
+O Nginx do frontend usa a resolução DNS dinâmica da rede Docker. Assim, uma indisponibilidade temporária do backend durante migrations não encerra o container do frontend.
+
 ## Exceção temporária da auditoria npm
 
 O frontend está fixado em `react-router-dom@7.18.2`. A auditoria npm atual associa essa versão a um alerta de CSRF no modo RSC/Server Actions. O BulkMail é uma SPA Vite client-side e não usa RSC, loaders/actions de servidor ou React Server Components; portanto, o caminho afetado não está habilitado nesta aplicação.

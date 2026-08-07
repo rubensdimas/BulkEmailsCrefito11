@@ -1,4 +1,5 @@
 import type { Knex } from 'knex';
+import path from 'node:path';
 
 const config: Record<string, Knex.Config> = {
   production: {
@@ -13,7 +14,9 @@ const config: Record<string, Knex.Config> = {
     pool: { min: 1, max: 5 },
     migrations: {
       tableName: 'knex_migrations',
-      directory: './dist/migrations',
+      // Knex changes the working directory to the directory of this compiled
+      // file. Resolve from __dirname so production always targets dist/migrations.
+      directory: path.resolve(__dirname, '..', 'migrations'),
       extension: 'js',
     },
   },

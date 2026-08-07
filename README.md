@@ -104,6 +104,8 @@ Depois de atualizar o código na VPS:
 
 O comando cria imagens com tag imutável, valida o stack, gera um backup antes da atualização, executa migrations, acompanha healthchecks e encerra com erro se o rollout não estabilizar. O Swarm mantém a versão anterior durante o início da nova versão e aplica rollback quando o novo serviço falha.
 
+O frontend resolve o backend dinamicamente pela rede interna do Docker. Portanto, ele continua disponível durante o intervalo curto em que o backend executa migrations ou é recriado no rollout.
+
 Para acompanhar:
 
 ```bash
