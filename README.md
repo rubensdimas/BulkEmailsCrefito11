@@ -220,11 +220,13 @@ grep -nE 'ports:|3000:3000|5173:80|5432:5432|6379:6379' docker-compose.prod.yml
 
 Esse comando não deve retornar resultados.
 
-Confirme também que o volume do Postgres está montado em `/var/lib/postgresql`, não em `/var/lib/postgresql/data`:
+Como a produção usa `postgres:14-alpine`, confirme que o volume está montado em `/var/lib/postgresql/data`:
 
 ```bash
 grep -n '/var/lib/postgresql' docker-compose.prod.yml
 ```
+
+Não altere o ponto de montagem para `/var/lib/postgresql` ao usar PostgreSQL 14. Esse layout não deve ser misturado com um volume PostgreSQL 14.
 
 ### 5. Fazer deploy manual no Swarm
 
@@ -260,28 +262,86 @@ curl https://bulkmail.crefito.gov.br/api/health
 
 Acesse `https://bulkmail.crefito.gov.br` no navegador e confirme que as chamadas da interface usam `/api`, não `localhost:3000`.
 
-### Recuperar erro de volume no PostgreSQL 18+
+### Recuperar falhas de volume e autenticação no PostgreSQL 14
 
-As imagens PostgreSQL 18+ esperam que o volume seja montado em `/var/lib/postgresql`. Se a VPS falhou com mensagem sobre dados em `/var/lib/postgresql/data`, provavelmente uma tentativa anterior criou um volume no layout antigo.
+Em produção, `postgres_data` é um volume externo e contém o estado real do PostgreSQL. As variáveis `POSTGRES_USER`, `POSTGRES_PASSWORD` e `POSTGRES_DB` do compose só são usadas quando o diretório de dados está vazio. Ao reutilizar ou restaurar um volume, elas não criam a role novamente nem alteram sua senha.
 
-Se foi uma primeira subida e não há dados reais no banco, remova a stack e apenas o volume Postgres criado pela tentativa falha:
+Os erros abaixo têm causas diferentes:
+
+- `could not open file "global/pg_filenode.map": Permission denied`: os arquivos restaurados não pertencem ao usuário do PostgreSQL do container.
+- `password authentication failed for user "bulkmail"`: a senha no `.env` não corresponde à senha persistida para a role no volume.
+
+Antes de corrigir um volume real, faça um backup verificável. Não use `docker volume rm` e não use `docker compose down -v` em produção.
+
+#### Inspecionar versão, volume e credenciais
+
+Execute os comandos na mesma VPS/nó que hospeda o volume local:
 
 ```bash
-docker stack rm bulkmail
-docker stack ps bulkmail
+docker volume inspect postgres_data
+docker service ps bulkmail_postgres --no-trunc
+docker service logs --tail 100 bulkmail_postgres
 
-docker volume ls | grep postgres
-docker volume rm NOME_REAL_DO_VOLUME_POSTGRES
+POSTGRES_CONTAINER=$(docker ps -q -f name=bulkmail_postgres | head -n 1)
+docker exec "$POSTGRES_CONTAINER" postgres --version
+docker exec "$POSTGRES_CONTAINER" id postgres
+docker exec "$POSTGRES_CONTAINER" stat -c '%U:%G %a %n' /var/lib/postgresql/data/global/pg_filenode.map
 ```
 
-Depois faça o deploy novamente com o `docker-compose.prod.yml` corrigido:
+Quando a permissão permite acesso ao banco, valide a role e o database usando o usuário administrador existente no volume:
 
 ```bash
-export $(grep -v '^#' .env | xargs)
+docker exec -it "$POSTGRES_CONTAINER" psql -U <usuario-admin> -d postgres -c '\du'
+docker exec -it "$POSTGRES_CONTAINER" psql -U <usuario-admin> -d postgres -c '\l'
+```
+
+#### Corrigir proprietário do volume
+
+Pare somente os serviços que acessam o banco e mantenha o serviço PostgreSQL parado durante a correção dos arquivos:
+
+```bash
+docker service scale bulkmail_backend=0 bulkmail_worker=0
+docker service scale bulkmail_postgres=0
+```
+
+No mesmo nó onde o volume está armazenado, corrija o proprietário usando a imagem compatível:
+
+```bash
+docker run --rm --user 0 \
+  -v postgres_data:/var/lib/postgresql/data \
+  postgres:14-alpine \
+  chown -R postgres:postgres /var/lib/postgresql/data
+```
+
+Depois suba o PostgreSQL e confirme que ele inicia sem erro antes de restaurar os consumidores:
+
+```bash
+docker service scale bulkmail_postgres=1
+docker service logs -f bulkmail_postgres
+```
+
+#### Corrigir a senha da role
+
+Se a role existir, altere a senha diretamente no banco usando uma role administradora do próprio volume. Use a mesma senha definida no `.env` da stack:
+
+```bash
+POSTGRES_CONTAINER=$(docker ps -q -f name=bulkmail_postgres | head -n 1)
+docker exec -it "$POSTGRES_CONTAINER" \
+  psql -U <usuario-admin> -d postgres \
+  -c "ALTER ROLE bulkmail WITH LOGIN PASSWORD '<senha-do-.env>';"
+```
+
+Se `bulkmail` ou o banco configurado não existirem, não os crie às cegas. Confirme primeiro os nomes existentes com `\du` e `\l`; uma restauração pode ter usado nomes diferentes. Ajuste o `.env` e a stack para os nomes reais, ou crie a role/database somente após confirmar o backup e a propriedade dos dados.
+
+Após corrigir volume e credenciais:
+
+```bash
 docker stack deploy -c docker-compose.prod.yml bulkmail
+docker service update --force bulkmail_backend
+docker service logs -f bulkmail_backend
 ```
 
-Se o volume já contém dados reais, não remova o volume. Nesse caso, faça backup ou migração controlada: suba temporariamente a versão compatível com os dados existentes, gere um `pg_dump` e restaure em um volume novo compatível com PostgreSQL 18+.
+O backend só deve iniciar depois de registrar `Running migrations...` sem erro e, em seguida, `Starting application...`. Se continuar reiniciando, interrompa o rollout e investigue os logs; não remova o volume como tentativa de correção.
 
 ## Troubleshooting (Docker)
 

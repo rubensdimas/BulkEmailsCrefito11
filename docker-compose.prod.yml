@@ -23,10 +23,11 @@ services:
     networks:
       - CrefitoNet
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-bulkmail}"]
+      test: ["CMD-SHELL", "PGPASSWORD=\"$${POSTGRES_PASSWORD}\" psql -h 127.0.0.1 -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\" -c 'SELECT 1' >/dev/null"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 10s
     deploy:
       replicas: 1
       restart_policy:
@@ -85,7 +86,7 @@ services:
       - CrefitoNet
     command: >
       sh -c "echo 'Waiting for database...' &&
-             until pg_isready -h postgres -p 5432 -U $${POSTGRES_USER}; do sleep 2; done &&
+             until pg_isready -h postgres -p 5432 -U $${POSTGRES_USER} -d $${POSTGRES_DB}; do sleep 2; done &&
              echo 'Running migrations...' &&
              npm run migrate &&
              echo 'Starting application...' &&
@@ -123,7 +124,7 @@ services:
       - CrefitoNet
     command: >
       sh -c "echo 'Waiting for database...' &&
-             until pg_isready -h postgres -p 5432 -U $${POSTGRES_USER}; do sleep 2; done &&
+             until pg_isready -h postgres -p 5432 -U $${POSTGRES_USER} -d $${POSTGRES_DB}; do sleep 2; done &&
              echo 'Starting worker...' &&
              node dist/queue/emailWorker.js"
     deploy:
