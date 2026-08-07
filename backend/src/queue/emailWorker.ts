@@ -28,7 +28,8 @@ const startWorker = async (): Promise<void> => {
     await initializeDatabase();
     dbInitialized = true;
   } catch (error) {
-    console.warn("⚠️  Database not available, running in queue-only mode");
+    if (process.env.NODE_ENV === 'production') throw error;
+    console.warn("⚠️  Database not available in development");
   }
 
   console.log(`

@@ -69,6 +69,8 @@ export const initDatabase = async (): Promise<Knex> => {
     return db;
   } catch (error) {
     console.error('❌ Database connection failed:', error);
+    if (db) await db.destroy().catch(() => undefined);
+    db = null;
     throw error;
   }
 };

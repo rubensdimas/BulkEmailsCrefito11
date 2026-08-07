@@ -1,546 +1,196 @@
 # BulkMail Pro
 
-Sistema de envio de emails em massa via planilha XLSX com filas de processamento.
+Aplicação para importação de destinatários por planilha, criação de campanhas e envio de emails pela Mailgrid, com processamento assíncrono e acompanhamento de status.
 
-## Stack Técnica
+## Arquitetura
 
-- **Backend**: Node.js + Express + TypeScript
-- **Frontend**: React 18 + TypeScript + Tailwind CSS
-- **Database**: PostgreSQL
-- **Cache/Queue**: Redis + Bull Queue
-- **Envio**: API Mailgrid
+- React 18 + TypeScript no frontend.
+- Node.js 24 LTS + Express + TypeScript no backend.
+- PostgreSQL 18 para dados e configurações.
+- Redis + Bull para filas.
+- Nginx no frontend e Traefik existente na borda.
+- Docker Compose no desenvolvimento e Docker Swarm em produção.
 
-## Funcionalidades
+Em produção, somente o frontend participa da rede externa `CrefitoNet`. Backend, worker, PostgreSQL, Redis e backup usam a rede privada `bulkmail_internal`. PostgreSQL, Redis e backups ficam em volumes externos e sobrevivem à substituição dos containers e à remoção da stack.
 
-1. **Importação XLSX** - Upload de arquivos até 100MB/100k linhas
-2. **Validação RFC 5322** - Regex para validação de emails
-3. **Deduplicação** - Remove emails duplicados automaticamente
-4. **Filas com Throttling** - Taxa configurável (10-500 emails/min)
-5. **Retry Automático** - Máximo 3 tentativas em caso de falha
-6. **Dashboard em Tempo Real** - Acompanhamento de status
-7. **Configuração Dinâmica da Mailgrid** - Altere as credenciais de envio via interface web sem precisar reiniciar o sistema.
+## Desenvolvimento local
 
-## Configuração da Mailgrid
-
-O sistema suporta configuração por variáveis de ambiente ou pela interface web.
-
-1. **Variáveis de Ambiente**: Definidas no arquivo `.env` (fallback).
-2. **Interface Web**: Acesse a página de "Configurações" para salvar as credenciais no banco de dados. As configurações no banco de dados têm prioridade sobre o `.env`.
-
-### Teste de Conexão
-Na página de configurações, você pode enviar um e-mail de teste para validar se as credenciais estão corretas antes de salvá-las.
-
-### Webhook de entregas
-
-Cadastre no painel da Mailgrid a URL pública abaixo e habilite os eventos de sucesso, soft bounce e hard bounce:
-
-```text
-https://bulkmail.crefito.gov.br/api/webhooks/mailgrid
-```
-
-O endpoint recebe requisições `POST` com `Content-Type: application/json` e valida o cabeçalho `Authorization: Bearer <TOKEN>`. O token pode ser alterado na página `/settings`; por segurança, o valor salvo nunca é devolvido pela API. Como fallback, configure `MAILGRID_WEBHOOK_TOKEN` no `.env`.
-
-Os eventos são relacionados pelo ID retornado pela Mailgrid no envio. A página `/status/{uuid}` mantém os quantitativos existentes e mostra até 100 destinatários por página, com ID da mensagem, destinatário, status e detalhes de bounce.
-
-## Quick Start
-
-### Com Docker (Recomendado)
+Requisitos: Docker Engine com Compose v2.
 
 ```bash
-# Iniciar todos os serviços e reconstruir imagens alteradas
-# As migrations são executadas automaticamente no bootstrap do backend
+cp .env.example .env
 docker compose up -d --build
-
-# Acompanhar migrations e inicialização
-docker compose logs -f backend
-
-# Confirmar o estado dos containers
 docker compose ps
+docker compose logs -f backend worker
 ```
 
-## Atualizar containers e schema
+A interface fica em `http://localhost:5173` e a API em `http://localhost:3000/api`.
 
-### Desenvolvimento com Docker Compose
-
-Depois de alterar o código backend, frontend ou uma migration, execute na raiz do projeto:
-
-```bash
-# Reconstruir imagens e recriar os serviços
-docker compose up -d --build
-
-# Executar migrations manualmente, caso necessário
-docker compose exec backend npm run migrate
-
-# Conferir resultado da migration e da inicialização
-docker compose logs -f backend
-docker compose ps
-```
-
-Para reiniciar os serviços sem remover os dados persistidos:
+Para parar sem apagar dados:
 
 ```bash
 docker compose down
+```
+
+Para atualizar o ambiente local:
+
+```bash
 docker compose up -d --build
 ```
 
-O `docker compose down` não remove volumes. Não use `docker compose down -v` em um banco que contenha dados reais.
+As dependências locais são fornecidas pela imagem Docker a partir do
+`package-lock.json`. Não execute `npm install` dentro dos containers. Após
+alterar dependências, basta repetir o comando acima; os volumes do PostgreSQL
+e Redis permanecem preservados.
 
-### Produção com Docker Swarm
+`docker compose down -v` apaga os dados locais e não deve ser usado em produção.
 
-Após alterar o backend ou as migrations, execute na VPS:
+## Configuração
+
+O arquivo `.env.example` contém somente valores para desenvolvimento. Produção separa:
+
+- `deploy/production.env`: domínio, banco, remetente, limites e referências das imagens;
+- `deploy/secrets/`: valores sensíveis locais usados uma vez para criar Docker Secrets.
+
+Nenhuma senha possui fallback em produção. O backend lê secrets pelos campos `*_FILE`, e senha Mailgrid/token webhook persistidos pela interface são criptografados com AES-256-GCM.
+
+## Primeiro deploy em produção
+
+Requisitos da VPS:
+
+- Docker Swarm ativo;
+- execução em um manager;
+- Traefik atual operando na rede `CrefitoNet`;
+- domínio `bulkmail.crefito.gov.br` apontado para a VPS;
+- `docker`, `curl`, `openssl` e Git instalados.
+
+Prepare a configuração:
 
 ```bash
-# Rebuild das imagens
-docker build -t bulkmail-backend:prod ./backend
-docker build --build-arg VITE_API_URL=/api -t bulkmail-frontend:prod ./frontend
+cp deploy/production.env.example deploy/production.env
+mkdir -p deploy/secrets
+chmod 700 deploy/secrets
+printf '%s' 'SENHA_REAL_MAILGRID' > deploy/secrets/mailgrid_password
+chmod 600 deploy/secrets/mailgrid_password
+```
 
-# Validar a configuração antes do deploy
-docker compose -f docker-compose.prod.yml config
-docker stack config -c docker-compose.prod.yml
+Revise `deploy/production.env`. A opção `ALLOW_UNAUTHENTICATED_ADMIN=true` é obrigatória no estado atual e registra conscientemente que o painel ainda não possui login.
 
-# Atualizar a stack
-export $(grep -v '^#' .env | xargs)
-docker stack deploy -c docker-compose.prod.yml bulkmail
+Execute o bootstrap uma única vez:
 
-# Forçar uma nova execução do backend para aplicar migrations
-docker service update --force bulkmail_backend
+```bash
+./scripts/production/bootstrap.sh
+```
 
-# Acompanhar rollout, migrations e inicialização
+O bootstrap:
+
+1. valida Swarm, manager, Traefik e `CrefitoNet`;
+2. cria a rede privada e os volumes externos;
+3. fixa os serviços de dados no nó atual;
+4. gera passwords/tokens fortes quando ausentes;
+5. cria Docker Secrets;
+6. constrói imagens versionadas e publica a stack;
+7. aguarda `https://bulkmail.crefito.gov.br/api/health/ready` responder com sucesso.
+
+As labels Traefik permanecem iguais às existentes: router `bulkmail`, entrypoint `websecure`, resolver `letsencryptresolver` e porta interna `80`.
+
+## Publicar uma atualização
+
+Depois de atualizar o código na VPS:
+
+```bash
+./scripts/production/deploy.sh
+```
+
+O comando cria imagens com tag imutável, valida o stack, gera um backup antes da atualização, executa migrations, acompanha healthchecks e encerra com erro se o rollout não estabilizar. O Swarm mantém a versão anterior durante o início da nova versão e aplica rollback quando o novo serviço falha.
+
+Para acompanhar:
+
+```bash
 docker stack services bulkmail
-docker stack ps bulkmail
+docker stack ps bulkmail --no-trunc
 docker service logs -f bulkmail_backend
 docker service logs -f bulkmail_worker
 ```
 
-O serviço `backend` executa `npm run migrate` antes de iniciar a aplicação. O worker não precisa executar migrations.
+Não é necessário executar build, migration, `docker service update --force` ou `docker stack deploy` manualmente.
 
-Para rollback manual de uma migration, faça backup antes e execute somente após confirmar o impacto:
+## Persistência e backups
 
-```bash
-# Desenvolvimento
-docker compose exec backend npm run migrate:rollback
+Os volumes de produção têm nomes fixos:
 
-# Produção: use o nome do container backend em execução
-docker exec -it <container-backend> npm run migrate:rollback
-```
+| Volume | Conteúdo |
+| --- | --- |
+| `bulkmail_postgres_data` | Banco PostgreSQL |
+| `bulkmail_redis_data` | Filas Redis/AOF |
+| `bulkmail_backups` | Dumps PostgreSQL verificados |
 
-Nunca remova volumes PostgreSQL ou Redis para corrigir uma migration sem confirmar que não há dados a preservar.
-
-## Produção com Docker Swarm
-
-Este projeto possui um compose de produção para Docker Swarm em `docker-compose.prod.yml`.
-Ele foi preparado para uma VPS com Traefik já ativo, rede externa `CrefitoNet` e domínio `bulkmail.crefito.gov.br`.
-
-O acesso público deve acontecer pelo Traefik em `https://bulkmail.crefito.gov.br`. A stack não publica as portas `3000`, `5173`, `5432` ou `6379` no host; essas portas são usadas apenas dentro da rede Docker.
-
-### 1. Verificar a VPS antes do deploy
-
-Execute estes comandos diretamente na VPS antes de publicar a stack:
+O serviço `bulkmail_backup` cria um dump ao iniciar e depois diariamente, mantendo sete dias. Um backup sob demanda pode ser criado com:
 
 ```bash
-# Verificar portas em uso no host
-ss -tulpn
-
-# Verificar serviços Swarm existentes
-docker service ls
-
-# Verificar containers com portas publicadas
-docker ps --format 'table {{.Names}}\t{{.Ports}}'
-
-# Confirmar que a rede externa do Traefik existe
-docker network ls | grep CrefitoNet
-
-# Verificar se ja existe volume Postgres de tentativa anterior
-docker volume ls | grep postgres
+./scripts/production/backup.sh
 ```
 
-Também confira se nenhum serviço Traefik já usa o mesmo host:
+Atualizações e `docker stack rm bulkmail` não removem volumes externos. Nunca inclua `docker volume rm` no fluxo normal de atualização.
 
-```bash
-docker service inspect $(docker service ls -q) \
-  --format '{{.Spec.Name}} {{json .Spec.Labels}}' | grep 'bulkmail.crefito.gov.br'
+Restauração, reset total e rotação de secrets estão no [runbook de produção](docs/production.md).
+
+## Segurança
+
+O ambiente de produção aplica:
+
+- TLS pelo Traefik existente;
+- banco e Redis sem portas públicas e fora da `CrefitoNet`;
+- Docker Secrets para credenciais;
+- containers de aplicação executados como usuário sem privilégios;
+- healthchecks, limites de recursos e rollback;
+- headers HTTP, CSP, CORS restrito e rate limiting;
+- validação de assinatura de planilha e uploads temporários em memória;
+- remoção automática das planilhas após processamento;
+- erros internos ocultos em produção.
+
+> **Risco conhecido:** o painel ainda não possui autenticação. Quem acessar o domínio poderá tentar enviar campanhas e alterar configurações. Rate limiting não substitui autenticação. Antes de disponibilizar o domínio para acesso público irrestrito, implemente SSO, VPN, allowlist ou login da aplicação.
+
+O webhook Mailgrid continua protegido por `Authorization: Bearer <TOKEN>`:
+
+```text
+POST https://bulkmail.crefito.gov.br/api/webhooks/mailgrid
 ```
 
-Antes de continuar, confirme:
-
-- `CrefitoNet` existe no Swarm.
-- As portas `80` e `443` continuam sob responsabilidade do Traefik já instalado.
-- Nenhum router Traefik já usa ``Host(`bulkmail.crefito.gov.br`)``.
-- A stack do BulkMail não publica portas no host.
-- Se já existir volume Postgres, ele só será removido se não houver dados reais para preservar.
-
-### 2. Configurar variáveis de ambiente
-
-Crie ou atualize o `.env` na VPS com as credenciais reais de produção:
-
-```bash
-POSTGRES_USER=bulkmail
-POSTGRES_PASSWORD=troque-esta-senha
-POSTGRES_DB=bulkmail
-
-REDIS_PASSWORD=troque-esta-senha
-
-MAILGRID_HOST=smtpxxxxxxxx.mailgrid.net.br
-MAILGRID_USER=usuario@mailgrid.net.br
-MAILGRID_PASS=senha
-MAILGRID_SENDER=noreply@crefito.gov.br
-MAILGRID_WEBHOOK_TOKEN=token-gerado-no-painel
-
-WORKER_CONCURRENCY=3
-THROTTLE_RATE=50
-```
-
-### 3. Buildar as imagens de produção
-
-Execute os builds no diretório raiz do projeto:
-
-```bash
-docker build -t bulkmail-backend:prod ./backend
-docker build --build-arg VITE_API_URL=/api -t bulkmail-frontend:prod ./frontend
-```
-
-Sempre refaça o build de `bulkmail-backend:prod` após mudanças no backend ou nas migrations. A imagem de produção inclui `knexfile.ts`, `tsconfig.json` e `src/migrations` para permitir que `npm run migrate` execute as migrations TypeScript dentro do container.
-
-O argumento `VITE_API_URL=/api` garante que o frontend chame a API pelo mesmo domínio público, usando o proxy Nginx interno para `backend:3000`.
-
-### 4. Validar o compose de produção
-
-Antes do deploy, valide a configuração:
-
-```bash
-docker compose -f docker-compose.prod.yml config
-docker stack config -c docker-compose.prod.yml
-```
-
-Confirme que o arquivo não possui publicação de portas:
-
-```bash
-grep -nE 'ports:|3000:3000|5173:80|5432:5432|6379:6379' docker-compose.prod.yml
-```
-
-Esse comando não deve retornar resultados.
-
-Como a produção usa `postgres:14-alpine`, confirme que o volume está montado em `/var/lib/postgresql/data`:
-
-```bash
-grep -n '/var/lib/postgresql' docker-compose.prod.yml
-```
-
-Não altere o ponto de montagem para `/var/lib/postgresql` ao usar PostgreSQL 14. Esse layout não deve ser misturado com um volume PostgreSQL 14.
-
-### 5. Fazer deploy manual no Swarm
-
-Publique a stack:
-
-```bash
-export $(grep -v '^#' .env | xargs)
-docker stack deploy -c docker-compose.prod.yml bulkmail
-```
-
-Acompanhe os serviços:
-
-```bash
-docker stack services bulkmail
-docker stack ps bulkmail
-```
-
-Verifique logs dos principais serviços:
-
-```bash
-docker service logs -f bulkmail_backend
-docker service logs -f bulkmail_worker
-docker service logs -f bulkmail_frontend
-```
-
-### 6. Validar a aplicação
-
-Após o Traefik rotear o domínio, valide a API e a interface:
-
-```bash
-curl https://bulkmail.crefito.gov.br/api/health
-```
-
-Acesse `https://bulkmail.crefito.gov.br` no navegador e confirme que as chamadas da interface usam `/api`, não `localhost:3000`.
-
-### Recuperar falhas de volume e autenticação no PostgreSQL 14
-
-Em produção, `postgres_data` é um volume externo e contém o estado real do PostgreSQL. As variáveis `POSTGRES_USER`, `POSTGRES_PASSWORD` e `POSTGRES_DB` do compose só são usadas quando o diretório de dados está vazio. Ao reutilizar ou restaurar um volume, elas não criam a role novamente nem alteram sua senha.
-
-Os erros abaixo têm causas diferentes:
-
-- `could not open file "global/pg_filenode.map": Permission denied`: os arquivos restaurados não pertencem ao usuário do PostgreSQL do container.
-- `password authentication failed for user "bulkmail"`: a senha no `.env` não corresponde à senha persistida para a role no volume.
-
-Antes de corrigir um volume real, faça um backup verificável. Não use `docker volume rm` e não use `docker compose down -v` em produção.
-
-#### Inspecionar versão, volume e credenciais
-
-Execute os comandos na mesma VPS/nó que hospeda o volume local:
-
-```bash
-docker volume inspect postgres_data
-docker service ps bulkmail_postgres --no-trunc
-docker service logs --tail 100 bulkmail_postgres
-
-POSTGRES_CONTAINER=$(docker ps -q -f name=bulkmail_postgres | head -n 1)
-docker exec "$POSTGRES_CONTAINER" postgres --version
-docker exec "$POSTGRES_CONTAINER" id postgres
-docker exec "$POSTGRES_CONTAINER" stat -c '%U:%G %a %n' /var/lib/postgresql/data/global/pg_filenode.map
-```
-
-Quando a permissão permite acesso ao banco, valide a role e o database usando o usuário administrador existente no volume:
-
-```bash
-docker exec -it "$POSTGRES_CONTAINER" psql -U <usuario-admin> -d postgres -c '\du'
-docker exec -it "$POSTGRES_CONTAINER" psql -U <usuario-admin> -d postgres -c '\l'
-```
-
-#### Corrigir proprietário do volume
-
-Pare somente os serviços que acessam o banco e mantenha o serviço PostgreSQL parado durante a correção dos arquivos:
-
-```bash
-docker service scale bulkmail_backend=0 bulkmail_worker=0
-docker service scale bulkmail_postgres=0
-```
-
-No mesmo nó onde o volume está armazenado, corrija o proprietário usando a imagem compatível:
-
-```bash
-docker run --rm --user 0 \
-  -v postgres_data:/var/lib/postgresql/data \
-  postgres:14-alpine \
-  chown -R postgres:postgres /var/lib/postgresql/data
-```
-
-Depois suba o PostgreSQL e confirme que ele inicia sem erro antes de restaurar os consumidores:
-
-```bash
-docker service scale bulkmail_postgres=1
-docker service logs -f bulkmail_postgres
-```
-
-#### Corrigir a senha da role
-
-Se a role existir, altere a senha diretamente no banco usando uma role administradora do próprio volume. Use a mesma senha definida no `.env` da stack:
-
-```bash
-POSTGRES_CONTAINER=$(docker ps -q -f name=bulkmail_postgres | head -n 1)
-docker exec -it "$POSTGRES_CONTAINER" \
-  psql -U <usuario-admin> -d postgres \
-  -c "ALTER ROLE bulkmail WITH LOGIN PASSWORD '<senha-do-.env>';"
-```
-
-Se `bulkmail` ou o banco configurado não existirem, não os crie às cegas. Confirme primeiro os nomes existentes com `\du` e `\l`; uma restauração pode ter usado nomes diferentes. Ajuste o `.env` e a stack para os nomes reais, ou crie a role/database somente após confirmar o backup e a propriedade dos dados.
-
-Após corrigir volume e credenciais:
-
-```bash
-docker stack deploy -c docker-compose.prod.yml bulkmail
-docker service update --force bulkmail_backend
-docker service logs -f bulkmail_backend
-```
-
-O backend só deve iniciar depois de registrar `Running migrations...` sem erro e, em seguida, `Starting application...`. Se continuar reiniciando, interrompa o rollout e investigue os logs; não remova o volume como tentativa de correção.
-
-## Troubleshooting (Docker)
-
-### Migrations não executaram ou Tabelas não criadas
-Se ao subir os containers as tabelas não forem criadas automaticamente, você pode executar as migrações manualmente dentro do container do backend:
-
-```bash
-# Executar migrations manualmente
-docker exec -it bulkmail-backend npm run migrate
-
-# Verificar logs para erros específicos
-docker logs bulkmail-backend
-```
-
-**Causas Comuns:**
-- O banco Postgres demorou mais que o esperado para aceitar conexões (o backend tentou migrar antes da prontidão total).
-- Erro de permissão no volume do Postgres.
-- Credenciais no `.env` divergentes das configuradas no `docker-compose.yml`.
-
-### Sem Docker
-
-#### Backend
+## Healthchecks
+
+| Endpoint | Uso |
+| --- | --- |
+| `GET /api/health/live` | Processo HTTP ativo |
+| `GET /api/health/ready` | PostgreSQL e Redis disponíveis |
+| `GET /api/health` | Alias compatível do readiness |
+
+## Qualidade
 
 ```bash
 cd backend
-npm install
-cp ../.env.example .env
-# Configure .env com suas credenciais Mailgrid e banco de dados
+npm ci
+npm run lint
+npm run build
+npm test
 
-# Iniciar servidor
-npm run dev
-
-# Em outro terminal, iniciar worker
-npm run worker
+cd ../frontend
+npm ci
+npm run lint
+npm run build
 ```
 
-#### Frontend
+## Futuro GitHub Actions
+
+Nenhum workflow é criado nesta entrega. O fluxo já aceita imagens publicadas por CI:
 
 ```bash
-cd frontend
-npm install
-npm run dev
+SKIP_BUILD=true
+BACKEND_IMAGE=ghcr.io/owner/repository/backend@sha256:...
+FRONTEND_IMAGE=ghcr.io/owner/repository/frontend@sha256:...
 ```
 
-## Variáveis de Ambiente
-
-| Variável | Descrição | Padrão |
-|----------|-----------|--------|
-| `PORT` | Porta do servidor | `3000` |
-| `POSTGRES_HOST` | Host PostgreSQL | `localhost` |
-| `POSTGRES_PORT` | Porta PostgreSQL | `5432` |
-| `POSTGRES_USER` | Usuário PostgreSQL | `bulkmail` |
-| `POSTGRES_PASSWORD` | Senha PostgreSQL | `bulkmail123` |
-| `POSTGRES_DB` | Nome do banco | `bulkmail` |
-| `REDIS_URL` | URL Redis | `redis://localhost:6379` |
-| `MAILGRID_HOST` | Host SMTP informado pela Mailgrid | - |
-| `MAILGRID_USER` | Usuário Mailgrid | - |
-| `MAILGRID_PASS` | Senha Mailgrid | - |
-| `MAILGRID_SENDER` | Email remetente | `noreply@bulkmail.com` |
-| `MAILGRID_SENDER_NAME` | Nome do remetente | `BulkMail Pro` |
-| `MAILGRID_WEBHOOK_TOKEN` | Token Bearer para validar webhooks Mailgrid | - |
-| `CREFITO11_LOGO_PATH` | Caminho da logo montada no backend | `/assets/logos/CREFITO 11 - Marca - Neg 2 Completa.png` |
-| `CREFITO11_LOGO_URL` | URL pública absoluta usada no template de e-mail | `http://localhost:5173/api/assets/crefito11-email-logo.png` |
-| `THROTTLE_RATE` | Taxa envio/min | `50` |
-
-## API Endpoints
-
-### Upload
-```
-POST /api/upload
-Content-Type: multipart/form-data
-
-Response:
-{
-  "success": true,
-  "message": "File processed successfully",
-  "data": {
-    "fileName": "emails.xlsx",
-    "totalRows": 100,
-    "validEmails": 95,
-    "invalidEmails": 5
-  },
-  "emails": {
-    "valid": ["email@teste.com", ...],
-    "invalid": [{ "email": "invalido", "error": "..." }]
-  }
-}
-```
-
-### Enviar Emails
-```
-POST /api/send
-Content-Type: application/json
-{
-  "emails": ["teste@exemplo.com"],
-  "subject": "Assunto",
-  "html": "<p>Corpo HTML</p>"
-}
-
-Response:
-{
-  "success": true,
-  "jobId": "uuid",
-  "campaignId": "uuid",
-  "totalEmails": 100,
-  "validEmails": 95,
-  "message": "Created 95 email jobs in queue"
-}
-```
-
-### Status
-```
-GET /api/status/:jobId?page=1
-
-Response:
-{
-  "success": true,
-  "jobId": "uuid",
-  "status": "processing",
-  "total": 95,
-  "completed": 50,
-  "failed": 2,
-  "processing": 10,
-  "waiting": 33
-}
-```
-
-### Webhook Mailgrid
-
-```http
-POST /api/webhooks/mailgrid
-Authorization: Bearer <TOKEN>
-Content-Type: application/json
-```
-
-## Estrutura do Projeto
-
-```
-bulkmail-pro/
-├── backend/
-│   ├── src/
-│   │   ├── controllers/   # Controladores de rota
-│   │   ├── services/      # Lógica de negócio
-│   │   ├── repositories/  # Acesso a dados
-│   │   ├── models/        # Modelos de banco
-│   │   ├── queue/         # Processamento Bull Queue
-│   │   ├── middlewares/   # Middlewares Express
-│   │   ├── routes/        # Definição de rotas
-│   │   └── config/        # Configurações
-│   └── migrations/        # Migrações Knex
-├── frontend/
-│   ├── src/
-│   │   ├── components/    # Componentes React
-│   │   ├── pages/         # Páginas
-│   │   ├── hooks/         # Custom hooks
-│   │   ├── services/      # API calls
-│   │   └── types/         # TypeScript types
-│   └── public/
-├── docker-compose.yml
-└── .env
-```
-
-## Desenvolvimento
-
-```bash
-# Rodar testes
-cd backend && npm test
-
-# Build
-cd backend && npm run build
-cd frontend && npm run build
-
-# Lint
-cd backend && npm run lint
-```
-
-## Limpeza de Arquivos Temporários
-
-O sistema inclui um serviço de cleanup que remove arquivos de upload antigos automaticamente:
-
-```typescript
-import { cleanupOldFiles, getDirectoryStats } from './services/fileCleanup';
-
-// Verificar estatísticas
-const stats = getDirectoryStats('./uploads');
-console.log(`Arquivos: ${stats.totalFiles}, Tamanho: ${stats.totalSize} bytes`);
-
-// Executar limpeza (arquivos com mais de 24h)
-const result = cleanupOldFiles({ maxAgeMs: 24 * 60 * 60 * 1000 });
-console.log(`Removidos: ${result.deleted}, Espaço: ${result.freedBytes} bytes`);
-```
-
-## Critérios de Aceite
-
-- [x] Upload aceita .xlsx até 100MB
-- [x] Regex valida emails (RFC 5322)
-- [x] Throttling configurável
-- [x] Retry automático (max 3x)
-- [x] Status tracking com contadores
+O futuro workflow deverá testar, publicar as duas imagens no GHCR e executar o mesmo `scripts/production/deploy.sh`. A persistência, migrations, backup, healthcheck e rollback continuarão sob responsabilidade do script da VPS.
 
 ## Licença
 

@@ -4,8 +4,8 @@
  * Updated with database initialization
  */
 import express, { Express, Request, Response } from 'express';
-import cors from 'cors';
 import path from 'path';
+import { Server } from 'http';
 
 // Import routes
 import uploadRoutes from './routes/uploadRoutes';
@@ -15,6 +15,16 @@ import jobRoutes from './routes/jobRoutes';
 import configRoutes from './routes/configRoutes';
 import webhookRoutes from './routes/webhookRoutes';
 import { httpErrorHandler, notFoundHandler } from './middlewares/errorHandler';
+import {
+  configureSecurity,
+  configLimiter,
+  sendLimiter,
+  uploadLimiter,
+  webhookLimiter,
+} from './middlewares/security';
+import { getDatabase } from './config/database';
+import { getRedisClient, closeRedisConnection } from './config/redis';
+import { shutdownDatabase } from './services/databaseService';
 
 // Load environment variables
 import dotenv from 'dotenv';
@@ -27,12 +37,9 @@ const CREFITO11_LOGO_PATH = process.env.CREFITO11_LOGO_PATH ||
   '/assets/logos/CREFITO 11 - Marca - Neg 2 Completa.png';
 
 // Middleware
-app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-// Set static folder for uploads
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+configureSecurity(app);
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
 app.get('/api/assets/crefito11-email-logo.png', (_req: Request, res: Response) => {
   res.setHeader('Cache-Control', 'public, max-age=86400');
@@ -40,25 +47,38 @@ app.get('/api/assets/crefito11-email-logo.png', (_req: Request, res: Response) =
 });
 
 // API Routes
-app.use('/api/upload', uploadRoutes);
-app.use('/api/send', sendRoutes);
+app.use('/api/upload', uploadLimiter, uploadRoutes);
+app.use('/api/send', sendLimiter, sendRoutes);
 app.use('/api/status', statusRoutes);
 app.use('/api/jobs', jobRoutes);
-app.use('/api/config', configRoutes);
-app.use('/api/webhooks', webhookRoutes);
+app.use('/api/config', configLimiter, configRoutes);
+app.use('/api/webhooks', webhookLimiter, webhookRoutes);
 
 /**
  * Health check endpoint
  * GET /api/health
  */
-app.get('/api/health', (_req: Request, res: Response) => {
+app.get('/api/health/live', (_req: Request, res: Response) => {
   res.status(200).json({
     success: true,
-    message: 'BulkMail Pro API is running',
+    status: 'live',
     timestamp: new Date().toISOString(),
     version: '1.0.0',
   });
 });
+
+const readinessHandler = async (_req: Request, res: Response): Promise<void> => {
+  try {
+    await getDatabase().raw('SELECT 1');
+    await getRedisClient().ping();
+    res.status(200).json({ success: true, status: 'ready', timestamp: new Date().toISOString() });
+  } catch {
+    res.status(503).json({ success: false, status: 'not_ready', timestamp: new Date().toISOString() });
+  }
+};
+
+app.get('/api/health/ready', readinessHandler);
+app.get('/api/health', readinessHandler);
 
 /**
  * Root endpoint
@@ -79,18 +99,25 @@ app.use(notFoundHandler);
 /**
  * Initialize and start server
  */
-const startServer = async () => {
+const startServer = async (): Promise<Server> => {
   // Initialize database (if available)
   try {
     const { initializeDatabase } = await import('./services/databaseService');
     await initializeDatabase();
   } catch (error) {
-    console.warn('⚠️  Database not available, running in queue-only mode');
-    console.warn('   Install and start PostgreSQL to enable persistence');
+    if (process.env.NODE_ENV === 'production') throw error;
+    console.warn('⚠️  Database not available in development');
+  }
+
+  try {
+    await getRedisClient().ping();
+  } catch (error) {
+    if (process.env.NODE_ENV === 'production') throw error;
+    console.warn('⚠️  Redis not available in development');
   }
 
   // Start Express server
-  app.listen(PORT, () => {
+  const server = app.listen(PORT, () => {
     console.log(`
  ╔═══════════════════════════════════════════════════════════╗
  ║          BulkMail Pro - Backend API               ║
@@ -103,6 +130,18 @@ const startServer = async () => {
  ╚═══════════════════════════════════════════════════════════╝
     `);
   });
+
+  const shutdown = async (signal: string): Promise<void> => {
+    console.log(`Received ${signal}, shutting down...`);
+    server.close(async () => {
+      await Promise.allSettled([shutdownDatabase(), closeRedisConnection()]);
+      process.exit(0);
+    });
+  };
+
+  process.once('SIGTERM', () => void shutdown('SIGTERM'));
+  process.once('SIGINT', () => void shutdown('SIGINT'));
+  return server;
 };
 
 // Start if called directly

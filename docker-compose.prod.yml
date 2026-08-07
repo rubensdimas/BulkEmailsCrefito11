@@ -1,30 +1,209 @@
-# Pre-deploy checks to run on the VPS before `docker stack deploy`:
-# - ss -tulpn
-# - docker service ls
-# - docker ps --format 'table {{.Names}}\t{{.Ports}}'
-# - docker network ls | grep CrefitoNet
-# - docker volume ls | grep postgres
-# - inspect existing Traefik routers/services for Host(`bulkmail.crefito.gov.br`)
-# Release criteria:
-# - CrefitoNet exists in Swarm
-# - 80/443 remain owned by the existing Traefik instance
-# - no other Traefik router already claims bulkmail.crefito.gov.br
-# - this stack must not publish host ports
-# - if a previous Postgres volume exists, preserve it only if it contains real data
 services:
   postgres:
-    image: postgres:14-alpine
+    image: postgres:18.4-alpine
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-bulkmail}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bulkmail123}
-      POSTGRES_DB: ${POSTGRES_DB:-bulkmail}
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql
     networks:
+      - bulkmail_internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.labels.bulkmail.data == true
+      restart_policy:
+        condition: on-failure
+      update_config:
+        order: stop-first
+        failure_action: rollback
+
+  redis:
+    image: redis:8.4.2-alpine
+    command: >
+      sh -ec 'exec redis-server --appendonly yes
+      --requirepass "$$(cat /run/secrets/redis_password)"'
+    secrets:
+      - redis_password
+    volumes:
+      - redis_data:/data
+    networks:
+      - bulkmail_internal
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$(cat /run/secrets/redis_password)\" ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.labels.bulkmail.data == true
+      restart_policy:
+        condition: on-failure
+      update_config:
+        order: stop-first
+        failure_action: rollback
+
+  backend:
+    image: ${BACKEND_IMAGE:?BACKEND_IMAGE is required}
+    environment: &backend_environment
+      NODE_ENV: production
+      PORT: 3000
+      APP_ORIGIN: ${APP_ORIGIN:?APP_ORIGIN is required}
+      ALLOW_UNAUTHENTICATED_ADMIN: ${ALLOW_UNAUTHENTICATED_ADMIN:-false}
+      UPLOAD_DIR: /app/uploads
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD_FILE: /run/secrets/redis_password
+      MAILGRID_HOST: ${MAILGRID_HOST:-}
+      MAILGRID_USER: ${MAILGRID_USER:-}
+      MAILGRID_PASS_FILE: /run/secrets/mailgrid_password
+      MAILGRID_SENDER: ${MAILGRID_SENDER:-noreply@bulkmail.com}
+      MAILGRID_SENDER_NAME: ${MAILGRID_SENDER_NAME:-BulkMail Pro}
+      MAILGRID_WEBHOOK_TOKEN_FILE: /run/secrets/mailgrid_webhook_token
+      CONFIG_ENCRYPTION_KEY_FILE: /run/secrets/config_encryption_key
+      CREFITO11_LOGO_PATH: /assets/logos/CREFITO 11 - Marca - Neg 2 Completa.png
+      CREFITO11_LOGO_URL: ${CREFITO11_LOGO_URL:?CREFITO11_LOGO_URL is required}
+    secrets: &backend_secrets
+      - postgres_password
+      - redis_password
+      - mailgrid_password
+      - mailgrid_webhook_token
+      - config_encryption_key
+    tmpfs:
+      - /app/uploads:size=128m,mode=0700,uid=1001,gid=1001
+      - /tmp:size=64m,mode=1777
+    networks:
+      - bulkmail_internal
+    command: >
+      sh -ec "echo 'Waiting for PostgreSQL...' &&
+      until pg_isready -h postgres -p 5432 -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\"; do sleep 2; done &&
+      echo 'Running migrations...' && npm run migrate:prod &&
+      echo 'Starting application...' && node dist/app.js"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      update_config:
+        parallelism: 1
+        order: start-first
+        monitor: 45s
+        failure_action: rollback
+      rollback_config:
+        parallelism: 1
+        order: stop-first
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 1G
+        reservations:
+          cpus: "0.25"
+          memory: 256M
+
+  worker:
+    image: ${BACKEND_IMAGE:?BACKEND_IMAGE is required}
+    environment:
+      <<: *backend_environment
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-3}
+      THROTTLE_RATE: ${THROTTLE_RATE:-50}
+    secrets: *backend_secrets
+    networks:
+      - bulkmail_internal
+    command: >
+      sh -ec "echo 'Waiting for PostgreSQL...' &&
+      until pg_isready -h postgres -p 5432 -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\"; do sleep 2; done &&
+      echo 'Starting worker...' && node dist/queue/emailWorker.js"
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      update_config:
+        parallelism: 1
+        order: start-first
+        monitor: 30s
+        failure_action: rollback
+      rollback_config:
+        parallelism: 1
+        order: stop-first
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 1G
+        reservations:
+          cpus: "0.25"
+          memory: 256M
+
+  backup:
+    image: postgres:18.4-alpine
+    environment:
+      PGHOST: postgres
+      PGPORT: 5432
+      PGUSER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      PGDATABASE: ${POSTGRES_DB:?POSTGRES_DB is required}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-7}
+    secrets:
+      - postgres_password
+    volumes:
+      - backups:/backups
+    networks:
+      - bulkmail_internal
+    command: >
+      sh -ec 'export PGPASSWORD="$$(cat /run/secrets/postgres_password)";
+      while true; do
+        stamp="$$(date -u +%Y%m%dT%H%M%SZ)";
+        tmp="/backups/$${PGDATABASE}-$${stamp}.dump.tmp";
+        out="/backups/$${PGDATABASE}-$${stamp}.dump";
+        until pg_isready -h "$${PGHOST}" -U "$${PGUSER}" -d "$${PGDATABASE}"; do sleep 5; done;
+        pg_dump --format=custom --file="$${tmp}";
+        pg_restore --list "$${tmp}" >/dev/null;
+        mv "$${tmp}" "$${out}";
+        find /backups -type f -name "*.dump" -mtime +"$${BACKUP_RETENTION_DAYS}" -delete;
+        echo "Backup created: $${out}";
+        sleep 86400;
+      done'
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.labels.bulkmail.data == true
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 512M
+
+  frontend:
+    image: ${FRONTEND_IMAGE:?FRONTEND_IMAGE is required}
+    networks:
+      - bulkmail_internal
       - CrefitoNet
     healthcheck:
-      test: ["CMD-SHELL", "PGPASSWORD=\"$${POSTGRES_PASSWORD}\" psql -h 127.0.0.1 -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\" -c 'SELECT 1' >/dev/null"]
-      interval: 10s
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/ >/dev/null"]
+      interval: 15s
       timeout: 5s
       retries: 5
       start_period: 10s
@@ -32,114 +211,18 @@ services:
       replicas: 1
       restart_policy:
         condition: on-failure
-
-  redis:
-    image: redis:8.4.2-alpine
-    command: >
-      sh -c 'if [ -n "$${REDIS_PASSWORD}" ]; then
-        redis-server --appendonly yes --requirepass "$${REDIS_PASSWORD}";
-      else
-        redis-server --appendonly yes;
-      fi'
-    environment:
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
-    volumes:
-      - redis_data:/data
-    networks:
-      - CrefitoNet
-    healthcheck:
-      test: ["CMD-SHELL", "if [ -n \"$${REDIS_PASSWORD}\" ]; then redis-cli -a \"$${REDIS_PASSWORD}\" ping; else redis-cli ping; fi"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    deploy:
-      replicas: 1
-      restart_policy:
-        condition: on-failure
-
-  backend:
-    image: bulkmail-backend:prod
-    environment:
-      NODE_ENV: production
-      PORT: 3000
-      UPLOAD_DIR: /app/uploads
-      POSTGRES_HOST: postgres
-      POSTGRES_PORT: 5432
-      POSTGRES_USER: ${POSTGRES_USER:-bulkmail}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bulkmail123}
-      POSTGRES_DB: ${POSTGRES_DB:-bulkmail}
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
-      MAILGRID_HOST: ${MAILGRID_HOST:-}
-      MAILGRID_USER: ${MAILGRID_USER:-}
-      MAILGRID_PASS: ${MAILGRID_PASS:-}
-      MAILGRID_SENDER: ${MAILGRID_SENDER:-noreply@bulkmail.com}
-      MAILGRID_SENDER_NAME: ${MAILGRID_SENDER_NAME:-BulkMail Pro}
-      MAILGRID_WEBHOOK_TOKEN: ${MAILGRID_WEBHOOK_TOKEN:-}
-      CREFITO11_LOGO_PATH: ${CREFITO11_LOGO_PATH:-/assets/logos/CREFITO 11 - Marca - Neg 2 Completa.png}
-      CREFITO11_LOGO_URL: ${CREFITO11_LOGO_URL:-https://bulkmail.crefito.gov.br/api/assets/crefito11-email-logo.png}
-    volumes:
-      - uploads_data:/app/uploads
-      - ./assets:/assets:ro
-    networks:
-      - CrefitoNet
-    command: >
-      sh -c "echo 'Waiting for database...' &&
-             until pg_isready -h postgres -p 5432 -U $${POSTGRES_USER} -d $${POSTGRES_DB}; do sleep 2; done &&
-             echo 'Running migrations...' &&
-             npm run migrate &&
-             echo 'Starting application...' &&
-             node dist/app.js"
-    deploy:
-      replicas: 1
-      restart_policy:
-        condition: on-failure
-
-  worker:
-    image: bulkmail-backend:prod
-    environment:
-      NODE_ENV: production
-      UPLOAD_DIR: /app/uploads
-      POSTGRES_HOST: postgres
-      POSTGRES_PORT: 5432
-      POSTGRES_USER: ${POSTGRES_USER:-bulkmail}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bulkmail123}
-      POSTGRES_DB: ${POSTGRES_DB:-bulkmail}
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
-      MAILGRID_HOST: ${MAILGRID_HOST:-}
-      MAILGRID_USER: ${MAILGRID_USER:-}
-      MAILGRID_PASS: ${MAILGRID_PASS:-}
-      MAILGRID_SENDER: ${MAILGRID_SENDER:-noreply@bulkmail.com}
-      MAILGRID_SENDER_NAME: ${MAILGRID_SENDER_NAME:-BulkMail Pro}
-      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-3}
-      THROTTLE_RATE: ${THROTTLE_RATE:-50}
-      CREFITO11_LOGO_URL: ${CREFITO11_LOGO_URL:-https://bulkmail.crefito.gov.br/api/assets/crefito11-email-logo.png}
-    volumes:
-      - uploads_data:/app/uploads
-      - ./assets:/assets:ro
-    networks:
-      - CrefitoNet
-    command: >
-      sh -c "echo 'Waiting for database...' &&
-             until pg_isready -h postgres -p 5432 -U $${POSTGRES_USER} -d $${POSTGRES_DB}; do sleep 2; done &&
-             echo 'Starting worker...' &&
-             node dist/queue/emailWorker.js"
-    deploy:
-      replicas: 1
-      restart_policy:
-        condition: on-failure
-
-  frontend:
-    image: bulkmail-frontend:prod
-    networks:
-      - CrefitoNet
-    deploy:
-      replicas: 1
-      restart_policy:
-        condition: on-failure
+      update_config:
+        parallelism: 1
+        order: start-first
+        monitor: 30s
+        failure_action: rollback
+      rollback_config:
+        parallelism: 1
+        order: stop-first
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 256M
       labels:
         - "traefik.enable=true"
         - "traefik.http.routers.bulkmail.rule=Host(`bulkmail.crefito.gov.br`)"
@@ -150,10 +233,34 @@ services:
 networks:
   CrefitoNet:
     external: true
+  bulkmail_internal:
+    external: true
+    name: bulkmail_internal
 
 volumes:
   postgres_data:
     external: true
-    name: postgres_data
+    name: bulkmail_postgres_data
   redis_data:
-  uploads_data:
+    external: true
+    name: bulkmail_redis_data
+  backups:
+    external: true
+    name: bulkmail_backups
+
+secrets:
+  postgres_password:
+    external: true
+    name: bulkmail_postgres_password
+  redis_password:
+    external: true
+    name: bulkmail_redis_password
+  mailgrid_password:
+    external: true
+    name: bulkmail_mailgrid_password
+  mailgrid_webhook_token:
+    external: true
+    name: bulkmail_mailgrid_webhook_token
+  config_encryption_key:
+    external: true
+    name: bulkmail_config_encryption_key

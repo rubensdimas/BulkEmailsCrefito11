@@ -1,22 +1,52 @@
 # Stage 1: Build
-FROM node:18-alpine AS builder
+FROM node:24-alpine AS builder
 
 WORKDIR /app
 
 # Copy package files
-COPY package*.json ./
+COPY backend/package*.json ./
 
 # Install dependencies
-RUN npm install
+RUN npm ci
 
 # Copy source code
-COPY . .
+COPY backend/ .
 
 # Build TypeScript
 RUN npm run build
 
-# Stage 2: Production
-FROM node:18-alpine AS production
+# Stage 2: local development
+# Keep the dependencies baked into the image. The development Compose file
+# mounts only source files, never the whole application directory.
+FROM builder AS development
+
+RUN apk add --no-cache su-exec postgresql-client
+
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nodejs -u 1001
+
+COPY assets /assets
+COPY backend/docker-entrypoint.sh /docker-entrypoint.sh
+
+RUN mkdir -p uploads && \
+    chown nodejs:nodejs uploads && \
+    chmod +x /docker-entrypoint.sh
+
+ENV NODE_ENV=development
+ENV UPLOAD_DIR=/app/uploads
+
+EXPOSE 3000
+
+ENTRYPOINT ["sh", "/docker-entrypoint.sh"]
+
+# Stage 3: Production
+FROM node:24-alpine AS production-dependencies
+
+WORKDIR /app
+COPY backend/package*.json ./
+RUN npm ci --omit=dev && npm cache clean --force
+
+FROM node:24-alpine AS production
 
 # Install su-exec and postgresql-client
 RUN apk add --no-cache su-exec postgresql-client
@@ -29,17 +59,15 @@ RUN addgroup -g 1001 -S nodejs && \
 
 # Copy built artifacts and necessary config
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/node_modules ./node_modules
+COPY --from=production-dependencies /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./
-COPY --from=builder /app/knexfile.ts ./
-COPY --from=builder /app/tsconfig.json ./
-COPY --from=builder /app/src/migrations ./src/migrations
+COPY assets /assets
 
 # Copy uploads directory
 RUN mkdir -p uploads && chown nodejs:nodejs uploads
 
 # Copy entrypoint script
-COPY docker-entrypoint.sh /docker-entrypoint.sh
+COPY backend/docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh
 
 # Set environment

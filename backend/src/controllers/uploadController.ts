@@ -6,6 +6,7 @@ import { Request, Response } from 'express';
 import xlsxService from '../services/xlsxService';
 import emailExtractor from '../services/emailExtractor';
 import emailValidator from '../services/emailValidator';
+import { hasValidSpreadsheetSignature } from '../middlewares/uploadMiddleware';
 
 /**
  * Upload response interface
@@ -34,6 +35,7 @@ export interface UploadResponse {
  * POST /api/upload
  */
 export const uploadFile = async (req: Request, res: Response): Promise<void> => {
+  let filePath: string | undefined;
   try {
     // Check if file was uploaded
     if (!req.file) {
@@ -44,15 +46,17 @@ export const uploadFile = async (req: Request, res: Response): Promise<void> => 
       return;
     }
 
-    const filePath = req.file.path;
+    filePath = req.file.path;
+
+    if (!hasValidSpreadsheetSignature(filePath)) {
+      res.status(400).json({ success: false, error: 'Invalid spreadsheet file content' });
+      return;
+    }
 
     // Parse XLSX file
-    const parseResult = xlsxService.parseXlsx(filePath);
+    const parseResult = await xlsxService.parseXlsx(filePath);
 
     if (!parseResult.success || parseResult.data.length === 0) {
-      // Clean up file on error
-      xlsxService.deleteFile(filePath);
-
       res.status(400).json({
         success: false,
         error: parseResult.error || 'Failed to parse XLSX file',
@@ -64,9 +68,6 @@ export const uploadFile = async (req: Request, res: Response): Promise<void> => 
     const emails = emailExtractor.extractEmails(parseResult.data, parseResult.headers);
 
     if (emails.length === 0) {
-      // Clean up file
-      xlsxService.deleteFile(filePath);
-
       res.status(400).json({
         success: false,
         error: 'No emails found in the file',
@@ -102,17 +103,17 @@ export const uploadFile = async (req: Request, res: Response): Promise<void> => 
       },
     };
 
-    // Clean up uploaded file after processing
-    xlsxService.deleteFile(filePath);
-
     res.status(200).json(response);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const publicError = process.env.NODE_ENV === 'production' ? 'Internal server error' : `Internal server error: ${errorMessage}`;
 
     res.status(500).json({
       success: false,
-      error: `Internal server error: ${errorMessage}`,
+      error: publicError,
     } as UploadResponse);
+  } finally {
+    if (filePath) xlsxService.deleteFile(filePath);
   }
 };
 

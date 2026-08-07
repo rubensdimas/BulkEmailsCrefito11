@@ -1,0 +1,12 @@
+.git
+.github
+.aiox-core
+.codex
+.agents
+.env
+deploy/secrets
+**/node_modules
+**/dist
+**/coverage
+**/*.log
+frontend/playwright-report

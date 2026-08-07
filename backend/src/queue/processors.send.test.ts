@@ -11,9 +11,26 @@ jest.mock("../services/databaseService", () => ({
   getEmailLogRepository: jest.fn(),
 }));
 
+const mailgridEnvironmentKeys = [
+  "MAILGRID_HOST",
+  "MAILGRID_USER",
+  "MAILGRID_PASS",
+  "MAILGRID_SENDER",
+  "MAILGRID_SENDER_NAME",
+] as const;
+
+const originalMailgridEnvironment = Object.fromEntries(
+  mailgridEnvironmentKeys.map((key) => [key, process.env[key]]),
+) as Record<(typeof mailgridEnvironmentKeys)[number], string | undefined>;
+
 describe("sendEmail institutional template", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    process.env.MAILGRID_HOST = "smtp.test.invalid";
+    process.env.MAILGRID_USER = "sender@test.invalid";
+    process.env.MAILGRID_PASS = "test-password";
+    process.env.MAILGRID_SENDER = "sender@test.invalid";
+    process.env.MAILGRID_SENDER_NAME = "BulkMail Test";
     process.env.CREFITO11_LOGO_URL =
       "https://bulkmail.example.com/api/assets/crefito11-email-logo.png";
     (isDatabaseReady as jest.Mock).mockReturnValue(false);
@@ -21,6 +38,14 @@ describe("sendEmail institutional template", () => {
   });
 
   afterEach(() => {
+    for (const key of mailgridEnvironmentKeys) {
+      const originalValue = originalMailgridEnvironment[key];
+      if (originalValue === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = originalValue;
+      }
+    }
     delete process.env.CREFITO11_LOGO_URL;
   });
 
@@ -34,7 +59,7 @@ describe("sendEmail institutional template", () => {
     });
 
     expect(sendViaMailgrid).toHaveBeenCalledWith(
-      expect.objectContaining({ host: "" }),
+      expect.objectContaining({ host: "smtp.test.invalid" }),
       expect.objectContaining({
         to: "dest@example.com",
         subject: "Aviso",

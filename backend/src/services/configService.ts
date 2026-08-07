@@ -5,6 +5,7 @@
 import { Knex } from 'knex';
 import { SystemConfigRepository } from '../repositories/systemConfigRepository';
 import { MailgridConfig } from '../models/SystemConfig';
+import { decryptSecret, encryptSecret } from './configEncryption';
 
 export class ConfigService {
   private repository: SystemConfigRepository;
@@ -25,10 +26,10 @@ export class ConfigService {
         return {
           host: smtp.host,
           user: smtp.user,
-          pass: smtp.pass,
+          pass: decryptSecret(smtp.pass || ''),
           from_address: smtp.from_address,
           from_name: smtp.from_name || 'BulkMail Pro',
-          webhook_token: smtp.webhook_token || process.env.MAILGRID_WEBHOOK_TOKEN || '',
+          webhook_token: decryptSecret(smtp.webhook_token || '') || process.env.MAILGRID_WEBHOOK_TOKEN || '',
         };
       }
     } catch (error) {
@@ -55,10 +56,10 @@ export class ConfigService {
       value: {
         host: config.host,
         user: config.user,
-        pass: config.pass,
+        pass: encryptSecret(config.pass),
         from_address: config.from_address,
         from_name: config.from_name || 'BulkMail Pro',
-        webhook_token: config.webhook_token || '',
+        webhook_token: encryptSecret(config.webhook_token || ''),
       }
     });
   }

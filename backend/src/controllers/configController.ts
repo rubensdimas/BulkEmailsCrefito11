@@ -134,10 +134,10 @@ export const testMailgridConfig = async (
       message: 'Mailgrid test email sent successfully'
     });
   } catch (error) {
+    if (process.env.NODE_ENV !== 'production') console.error('Mailgrid test failed:', error);
     res.status(500).json({
       success: false,
-      error: 'Mailgrid test failed',
-      details: error instanceof Error ? error.message : 'Unknown error'
+      error: 'Mailgrid test failed'
     });
   }
 };

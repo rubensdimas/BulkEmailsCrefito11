@@ -91,6 +91,7 @@ export const shutdownDatabase = async (): Promise<void> => {
   await closeDatabase();
   jobRepository = null;
   emailLogRepository = null;
+  configService = null;
 };
 
 // Export for backward compatibility

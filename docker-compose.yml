@@ -1,7 +1,7 @@
 services:
   # PostgreSQL Database
   postgres:
-    image: postgres:alpine3.22
+    image: postgres:18.4-alpine
     container_name: bulkmail-postgres
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-bulkmail}
@@ -39,8 +39,9 @@ services:
   # Backend API
   backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
+      target: development
     container_name: bulkmail-backend
     environment:
       NODE_ENV: ${NODE_ENV:-development}
@@ -64,8 +65,10 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      - ./backend:/app
-      - /app/node_modules
+      - ./backend/src:/app/src
+      - ./backend/knexfile.ts:/app/knexfile.ts:ro
+      - ./backend/tsconfig.json:/app/tsconfig.json:ro
+      - ./backend/package.json:/app/package.json:ro
       - ./backend/uploads:/app/uploads:rw
       - ./assets:/assets:ro
     networks:
@@ -97,15 +100,13 @@ services:
       - bulkmail-network
     depends_on:
       - backend
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
 
   # Worker for email processing
   worker:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
+      target: development
     container_name: bulkmail-worker
     environment:
       NODE_ENV: ${NODE_ENV:-development}
@@ -123,8 +124,10 @@ services:
       MAILGRID_SENDER_NAME: ${MAILGRID_SENDER_NAME:-BulkMail Pro}
       CREFITO11_LOGO_URL: ${CREFITO11_LOGO_URL:-http://localhost:5173/api/assets/crefito11-email-logo.png}
     volumes:
-      - ./backend:/app
-      - /app/node_modules
+      - ./backend/src:/app/src
+      - ./backend/knexfile.ts:/app/knexfile.ts:ro
+      - ./backend/tsconfig.json:/app/tsconfig.json:ro
+      - ./backend/package.json:/app/package.json:ro
       - ./backend/uploads:/app/uploads:rw
       - ./assets:/assets:ro
     networks:

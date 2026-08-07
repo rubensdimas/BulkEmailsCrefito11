@@ -1,4 +1,4 @@
-import ReactQuill from 'react-quill';
+import ReactQuill from 'react-quill-new';
 
 interface QuillEditorProps {
   value: string;

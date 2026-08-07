@@ -8,6 +8,7 @@
     "build": "tsc",
     "start": "node dist/app.js",
     "migrate": "knex migrate:latest",
+    "migrate:prod": "knex --knexfile dist/config/knexfile.js --env production migrate:latest",
     "migrate:rollback": "knex migrate:rollback",
     "worker": "ts-node src/queue/emailWorker.ts",
     "test": "jest",
@@ -25,14 +26,16 @@
     "bull": "^4.12.0",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
+    "exceljs": "^4.4.0",
     "express": "^4.18.2",
+    "express-rate-limit": "^8.6.2",
+    "helmet": "^8.3.0",
     "ioredis": "^5.3.2",
     "knex": "^3.1.0",
     "multer": "^1.4.5-lts.1",
     "pg": "^8.11.3",
-    "uuid": "^9.0.1",
+    "uuid": "^11.1.1",
     "winston": "^3.11.0",
-    "xlsx": "^0.18.5",
     "yaml": "^2.3.4"
   },
   "devDependencies": {
@@ -54,6 +57,9 @@
     "typescript": "^5.3.3"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=24.0.0"
+  },
+  "overrides": {
+    "uuid": "^11.1.1"
   }
 }

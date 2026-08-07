@@ -2,6 +2,7 @@ import multer, { FileFilterCallback, StorageEngine } from 'multer';
 import { Request, Response, NextFunction } from 'express';
 import path from 'path';
 import fs from 'fs';
+import { randomUUID } from 'crypto';
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(process.cwd(), 'uploads');
 
@@ -16,10 +17,8 @@ const storage: StorageEngine = multer.diskStorage({
     cb(null, UPLOAD_DIR);
   },
   filename: (_req, file, cb) => {
-    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
     const ext = path.extname(file.originalname);
-    const name = path.basename(file.originalname, ext);
-    cb(null, `${name}-${uniqueSuffix}${ext}`);
+    cb(null, `${randomUUID()}${ext.toLowerCase()}`);
   },
 });
 
@@ -27,17 +26,16 @@ const storage: StorageEngine = multer.diskStorage({
 const fileFilter = (_req: Request, file: Express.Multer.File, cb: FileFilterCallback) => {
   const allowedMimeTypes = [
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'application/vnd.ms-excel',
   ];
 
   // Also allow files with .xlsx extension even if MIME type is different
-  const allowedExtensions = ['.xlsx', '.xls'];
+  const allowedExtensions = ['.xlsx'];
   const ext = path.extname(file.originalname).toLowerCase();
 
   if (allowedMimeTypes.includes(file.mimetype) || allowedExtensions.includes(ext)) {
     cb(null, true);
   } else {
-    cb(new Error('Only XLSX and XLS files are allowed'));
+    cb(new Error('Only XLSX files are allowed'));
   }
 };
 
@@ -52,6 +50,18 @@ export const upload = multer({
 
 // Export middleware for single file upload
 export const uploadXlsx = upload.single('file');
+
+export const hasValidSpreadsheetSignature = (filePath: string): boolean => {
+  const descriptor = fs.openSync(filePath, 'r');
+  try {
+    const signature = Buffer.alloc(8);
+    fs.readSync(descriptor, signature, 0, signature.length, 0);
+    const isZip = signature[0] === 0x50 && signature[1] === 0x4b;
+    return isZip;
+  } finally {
+    fs.closeSync(descriptor);
+  }
+};
 
 // Error handler for multer errors
 export const handleUploadError = (err: Error, _req: Request, res: Response, next: NextFunction) => {
