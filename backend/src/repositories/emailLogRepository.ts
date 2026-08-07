@@ -2,7 +2,7 @@
  * EmailLog Repository
  * CRUD operations for EmailLog entity
  */
-import { Knex } from 'knex';
+import type { Knex } from 'knex';
 import { v4 as uuidv4 } from 'uuid';
 import {
   EmailLog,

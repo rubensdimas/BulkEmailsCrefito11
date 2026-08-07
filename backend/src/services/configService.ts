@@ -2,7 +2,7 @@
  * Config Service
  * Handles system configurations with database persistence and environment fallback
  */
-import { Knex } from 'knex';
+import type { Knex } from 'knex';
 import { SystemConfigRepository } from '../repositories/systemConfigRepository';
 import { MailgridConfig } from '../models/SystemConfig';
 import { decryptSecret, encryptSecret } from './configEncryption';

@@ -45,8 +45,8 @@ release_id=${DEPLOY_VERSION:-$(git -C "$PROJECT_ROOT" rev-parse --short HEAD)-$(
 if [ "${SKIP_BUILD:-false}" != "true" ]; then
   BACKEND_IMAGE="bulkmail-backend:$release_id"
   FRONTEND_IMAGE="bulkmail-frontend:$release_id"
-  docker build --pull -f "$PROJECT_ROOT/backend/Dockerfile" -t "$BACKEND_IMAGE" "$PROJECT_ROOT"
-  docker build --pull --build-arg VITE_API_URL=/api -f "$PROJECT_ROOT/frontend/Dockerfile" -t "$FRONTEND_IMAGE" "$PROJECT_ROOT/frontend"
+  docker build --pull --label "org.opencontainers.image.revision=$release_id" -f "$PROJECT_ROOT/backend/Dockerfile" -t "$BACKEND_IMAGE" "$PROJECT_ROOT"
+  docker build --pull --label "org.opencontainers.image.revision=$release_id" --build-arg VITE_API_URL=/api -f "$PROJECT_ROOT/frontend/Dockerfile" -t "$FRONTEND_IMAGE" "$PROJECT_ROOT/frontend"
 else
   : "${BACKEND_IMAGE:?BACKEND_IMAGE is required when SKIP_BUILD=true}"
   : "${FRONTEND_IMAGE:?FRONTEND_IMAGE is required when SKIP_BUILD=true}"
@@ -54,6 +54,11 @@ else
   docker pull "$FRONTEND_IMAGE"
 fi
 export BACKEND_IMAGE FRONTEND_IMAGE
+
+echo "Verifying backend production artifacts: $BACKEND_IMAGE"
+docker run --rm --entrypoint npm "$BACKEND_IMAGE" run verify:production-artifacts
+backend_image_id=$(docker image inspect --format '{{.Id}}' "$BACKEND_IMAGE")
+echo "Deploying release $release_id with backend image $BACKEND_IMAGE ($backend_image_id)"
 
 docker compose -f "$PROJECT_ROOT/docker-compose.prod.yml" config --quiet
 docker stack config -c "$PROJECT_ROOT/docker-compose.prod.yml" >/dev/null

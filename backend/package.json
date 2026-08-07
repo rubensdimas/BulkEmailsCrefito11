@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/app.ts",
     "build": "tsc",
+    "verify:production-artifacts": "node scripts/verifyProductionArtifacts.js",
     "start": "node dist/app.js",
     "migrate": "knex migrate:latest",
     "migrate:prod": "knex --knexfile dist/config/knexfile.js --env production migrate:latest",

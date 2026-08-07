@@ -12,8 +12,8 @@ RUN npm ci
 # Copy source code
 COPY backend/ .
 
-# Build TypeScript
-RUN npm run build
+# Build TypeScript and reject images with unloadable production migrations.
+RUN npm run build && npm run verify:production-artifacts
 
 # Stage 2: local development
 # Keep the dependencies baked into the image. The development Compose file
@@ -61,6 +61,7 @@ RUN addgroup -g 1001 -S nodejs && \
 COPY --from=builder /app/dist ./dist
 COPY --from=production-dependencies /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./
+COPY --from=builder /app/scripts ./scripts
 COPY assets /assets
 
 # Copy uploads directory

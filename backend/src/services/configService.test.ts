@@ -3,7 +3,7 @@
  */
 import { ConfigService } from './configService';
 import { SystemConfigRepository } from '../repositories/systemConfigRepository';
-import { Knex } from 'knex';
+import type { Knex } from 'knex';
 
 // Mock repository
 jest.mock('../repositories/systemConfigRepository');

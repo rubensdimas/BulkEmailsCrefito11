@@ -2,7 +2,7 @@
  * Database Configuration
  * Knex.js configuration for PostgreSQL
  */
-import knex, { Knex } from 'knex';
+import knex, { type Knex } from 'knex';
 import dotenv from 'dotenv';
 
 // Load environment variables

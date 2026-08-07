@@ -2,7 +2,7 @@
  * SystemConfig Repository
  * CRUD operations for SystemConfig entity
  */
-import { Knex } from 'knex';
+import type { Knex } from 'knex';
 import {
   SystemConfig,
   ConfigRow,
