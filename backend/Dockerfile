@@ -64,6 +64,11 @@ COPY --from=builder /app/package.json ./
 COPY --from=builder /app/scripts ./scripts
 COPY assets /assets
 
+# Declaration files are useful to library consumers, but must not be present
+# beside Knex migrations in the production runtime image.
+RUN find ./dist -type f \( -name '*.d.ts' -o -name '*.d.ts.map' \) -delete && \
+    node scripts/verifyProductionArtifacts.js
+
 # Copy uploads directory
 RUN mkdir -p uploads && chown nodejs:nodejs uploads
 

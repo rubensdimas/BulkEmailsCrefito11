@@ -30,6 +30,8 @@ Depois de atualizar o código na VPS, execute somente o fluxo normal abaixo. Ele
 
 Antes de publicar, o deploy valida o `knexfile` e todas as migrations dentro da imagem final. O log registra o release e o ID da imagem do backend; use essas informações para confirmar que a VPS publicou o artefato recém-construído.
 
+A imagem de produção carrega somente migrations `*.js` e remove declarações `*.d.ts`; portanto, o erro `Invalid migration ... .d.ts` bloqueia o build localmente em vez de interromper o serviço no Swarm.
+
 O Nginx do frontend usa a resolução DNS dinâmica da rede Docker. Assim, uma indisponibilidade temporária do backend durante migrations não encerra o container do frontend.
 
 ## Exceção temporária da auditoria npm

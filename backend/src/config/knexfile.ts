@@ -18,6 +18,9 @@ const config: Record<string, Knex.Config> = {
       // file. Resolve from __dirname so production always targets dist/migrations.
       directory: path.resolve(__dirname, '..', 'migrations'),
       extension: 'js',
+      // TypeScript declarations (*.d.ts) are emitted alongside the compiled
+      // migrations. Knex must never attempt to execute those declaration files.
+      loadExtensions: ['.js'],
     },
   },
 };

@@ -10,9 +10,14 @@ if (!fs.existsSync(knexfilePath)) {
 
 const config = require(knexfilePath).default;
 const migrationsDirectory = config?.production?.migrations?.directory;
+const loadExtensions = config?.production?.migrations?.loadExtensions;
 
 if (typeof migrationsDirectory !== "string" || !path.isAbsolute(migrationsDirectory)) {
   throw new Error("Production migrations directory must be an absolute path");
+}
+
+if (!Array.isArray(loadExtensions) || loadExtensions.length !== 1 || loadExtensions[0] !== ".js") {
+  throw new Error("Production migrations must load only .js files");
 }
 
 if (!fs.statSync(migrationsDirectory).isDirectory()) {
