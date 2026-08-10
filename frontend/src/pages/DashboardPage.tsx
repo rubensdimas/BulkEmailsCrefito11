@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { getJobs, deleteJob, Job, PaginatedResponse } from '../services/api';
+import { AccountMenu } from '../components/Auth/AccountMenu';
 
 export function DashboardPage() {
   const [data, setData] = useState<PaginatedResponse<Job> | null>(null);
@@ -88,7 +89,8 @@ export function DashboardPage() {
               <p className="text-gray-600 mt-1 text-sm">Gerencie o histórico de suas campanhas</p>
             </div>
           </div>
-          <div>
+          <div className="flex items-center gap-3">
+            <AccountMenu />
             <Link
               to="/"
               className="inline-flex items-center px-4 py-2 bg-primary-600 border border-transparent rounded-md shadow-sm text-sm font-medium text-white hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 transition-colors"

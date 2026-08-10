@@ -46,6 +46,7 @@ services:
     environment:
       NODE_ENV: ${NODE_ENV:-development}
       PORT: ${BACKEND_PORT:-3000}
+      APP_ORIGIN: ${APP_ORIGIN:-http://localhost:5173}
       UPLOAD_DIR: /app/uploads
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
@@ -62,6 +63,11 @@ services:
       MAILGRID_WEBHOOK_TOKEN: ${MAILGRID_WEBHOOK_TOKEN:-}
       CREFITO11_LOGO_PATH: ${CREFITO11_LOGO_PATH:-/assets/logos/CREFITO 11 - Marca - Neg 2 Completa.png}
       CREFITO11_LOGO_URL: ${CREFITO11_LOGO_URL:-http://localhost:5173/api/assets/crefito11-email-logo.png}
+      OIDC_ISSUER: ${OIDC_ISSUER:?OIDC_ISSUER is required and must be reachable from the backend container}
+      OIDC_BACKCHANNEL_ORIGIN: ${OIDC_BACKCHANNEL_ORIGIN:-}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:?OIDC_CLIENT_ID is required}
+      OIDC_CLIENT_SECRET_FILE: /run/secrets/oidc/oidc_client_secret
+      OIDC_SESSION_ENCRYPTION_KEY_FILE: /run/secrets/oidc/oidc_session_encryption_key
     ports:
       - "3000:3000"
     volumes:
@@ -71,8 +77,11 @@ services:
       - ./backend/package.json:/app/package.json:ro
       - ./backend/uploads:/app/uploads:rw
       - ./assets:/assets:ro
+      - ./.secrets:/run/secrets/oidc:ro
     networks:
       - bulkmail-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       postgres:
         condition: service_healthy
@@ -91,6 +100,8 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        VITE_AUTH_ENABLED: "true"
     container_name: bulkmail-frontend
     environment:
       VITE_API_URL: ${VITE_API_URL:-http://localhost:3000/api}

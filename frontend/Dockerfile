@@ -5,6 +5,8 @@ WORKDIR /app
 
 ARG VITE_API_URL=/api
 ENV VITE_API_URL=${VITE_API_URL}
+ARG VITE_AUTH_ENABLED=true
+ENV VITE_AUTH_ENABLED=${VITE_AUTH_ENABLED}
 
 # Copy package files
 COPY package*.json ./

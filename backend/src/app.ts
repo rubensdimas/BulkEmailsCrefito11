@@ -14,6 +14,7 @@ import statusRoutes from './routes/statusRoutes';
 import jobRoutes from './routes/jobRoutes';
 import configRoutes from './routes/configRoutes';
 import webhookRoutes from './routes/webhookRoutes';
+import authRoutes from './routes/authRoutes';
 import { httpErrorHandler, notFoundHandler } from './middlewares/errorHandler';
 import {
   configureSecurity,
@@ -22,6 +23,8 @@ import {
   uploadLimiter,
   webhookLimiter,
 } from './middlewares/security';
+import { requireAuthentication, requireTrustedOrigin } from './middlewares/authentication';
+import { assertOidcConfiguration } from './services/oidcService';
 import { getDatabase } from './config/database';
 import { getRedisClient, closeRedisConnection } from './config/redis';
 import { shutdownDatabase } from './services/databaseService';
@@ -29,6 +32,9 @@ import { shutdownDatabase } from './services/databaseService';
 // Load environment variables
 import dotenv from 'dotenv';
 dotenv.config();
+if (!process.env.OIDC_ISSUER) {
+  dotenv.config({ path: path.resolve(__dirname, '../../.env') });
+}
 
 // Create Express app
 const app: Express = express();
@@ -46,12 +52,10 @@ app.get('/api/assets/crefito11-email-logo.png', (_req: Request, res: Response) =
   res.sendFile(path.resolve(CREFITO11_LOGO_PATH));
 });
 
-// API Routes
-app.use('/api/upload', uploadLimiter, uploadRoutes);
-app.use('/api/send', sendLimiter, sendRoutes);
-app.use('/api/status', statusRoutes);
-app.use('/api/jobs', jobRoutes);
-app.use('/api/config', configLimiter, configRoutes);
+// These endpoints establish and inspect the browser session before the API guard.
+app.use('/api/auth', authRoutes);
+
+// Webhooks are authenticated by their own bearer token and cannot carry a browser session.
 app.use('/api/webhooks', webhookLimiter, webhookRoutes);
 
 /**
@@ -80,17 +84,15 @@ const readinessHandler = async (_req: Request, res: Response): Promise<void> => 
 app.get('/api/health/ready', readinessHandler);
 app.get('/api/health', readinessHandler);
 
-/**
- * Root endpoint
- * GET /
- */
-app.get('/', (_req: Request, res: Response) => {
-  res.status(200).json({
-    success: true,
-    message: 'BulkMail Pro API',
-    docs: '/api/health',
-  });
-});
+// Every remaining API route is an authenticated administrative operation.
+app.use('/api', requireAuthentication, requireTrustedOrigin);
+
+// API Routes
+app.use('/api/upload', uploadLimiter, uploadRoutes);
+app.use('/api/send', sendLimiter, sendRoutes);
+app.use('/api/status', statusRoutes);
+app.use('/api/jobs', jobRoutes);
+app.use('/api/config', configLimiter, configRoutes);
 
 // Error handling
 app.use(httpErrorHandler);
@@ -100,6 +102,7 @@ app.use(notFoundHandler);
  * Initialize and start server
  */
 const startServer = async (): Promise<Server> => {
+  assertOidcConfiguration();
   // Initialize database (if available)
   try {
     const { initializeDatabase } = await import('./services/databaseService');

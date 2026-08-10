@@ -6,6 +6,7 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api'
 const api: AxiosInstance = axios.create({
   baseURL: API_BASE_URL,
   timeout: 30000,
+  withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -171,6 +172,12 @@ export interface ConfigResponse<T> {
   error?: string;
 }
 
+export interface AuthUser {
+  sub: string;
+  name?: string;
+  email?: string;
+}
+
 // ============= API Functions =============
 
 // Get Mailgrid configuration
@@ -227,6 +234,16 @@ export const getJobs = async (params?: { limit?: number; offset?: number; status
 export const deleteJob = async (jobId: string): Promise<{ success: boolean; message: string }> => {
   const response = await api.delete<{ success: boolean; message: string }>(`/jobs/${jobId}`);
   return response.data;
+};
+
+export const getCurrentUser = async (): Promise<AuthUser> => {
+  const response = await api.get<ConfigResponse<AuthUser>>('/auth/me');
+  return response.data.data;
+};
+
+export const logout = async (): Promise<{ logoutUrl: string | null }> => {
+  const response = await api.post<{ success: boolean; logoutUrl: string | null }>('/auth/logout');
+  return { logoutUrl: response.data.logoutUrl };
 };
 
 // ============= Export =============

@@ -5,6 +5,7 @@ import EmailForm from '../components/EmailForm/EmailForm';
 import { useUpload } from '../hooks/useUpload';
 import { useEmailSubmit } from '../hooks/useEmailSubmit';
 import { mergeUniqueEmails } from '../utils/emailValidator';
+import { AccountMenu } from '../components/Auth/AccountMenu';
 
 export function HomePage() {
   const navigate = useNavigate();
@@ -75,6 +76,7 @@ export function HomePage() {
             <p className="text-gray-600 mt-1">Envio de emails em massa via planilha ou lista manual</p>
           </div>
           <div className="flex gap-3">
+            <AccountMenu />
             <Link
               to="/settings"
               className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors shadow-sm"

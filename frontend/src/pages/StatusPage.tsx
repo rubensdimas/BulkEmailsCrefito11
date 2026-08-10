@@ -4,6 +4,7 @@ import StatusPanel from '../components/StatusPanel/StatusPanel';
 import { useJobStatus } from '../hooks/useJobStatus';
 import type { JobStatus } from '../services/api';
 import EmailStatusTable from '../components/EmailStatusTable/EmailStatusTable';
+import { AccountMenu } from '../components/Auth/AccountMenu';
 
 export function StatusPage() {
   const { jobId } = useParams<{ jobId: string }>();
@@ -75,7 +76,8 @@ export function StatusPage() {
               <p className="text-gray-600 mt-1">Acompanhe o progresso do envio de emails</p>
             </div>
           </div>
-          <div>
+          <div className="flex items-center gap-3">
+            <AccountMenu />
             <Link
               to="/dashboard"
               className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors shadow-sm"

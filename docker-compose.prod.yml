@@ -62,7 +62,10 @@ services:
       NODE_ENV: production
       PORT: 3000
       APP_ORIGIN: ${APP_ORIGIN:?APP_ORIGIN is required}
-      ALLOW_UNAUTHENTICATED_ADMIN: ${ALLOW_UNAUTHENTICATED_ADMIN:-false}
+      OIDC_ISSUER: ${OIDC_ISSUER:?OIDC_ISSUER is required}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:?OIDC_CLIENT_ID is required}
+      OIDC_CLIENT_SECRET_FILE: /run/secrets/oidc_client_secret
+      OIDC_SESSION_ENCRYPTION_KEY_FILE: /run/secrets/oidc_session_encryption_key
       UPLOAD_DIR: /app/uploads
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
@@ -87,6 +90,8 @@ services:
       - mailgrid_password
       - mailgrid_webhook_token
       - config_encryption_key
+      - oidc_client_secret
+      - oidc_session_encryption_key
     tmpfs:
       - /app/uploads:size=128m,mode=0700,uid=1001,gid=1001
       - /tmp:size=64m,mode=1777
@@ -264,3 +269,9 @@ secrets:
   config_encryption_key:
     external: true
     name: bulkmail_config_encryption_key
+  oidc_client_secret:
+    external: true
+    name: bulkmail_oidc_client_secret
+  oidc_session_encryption_key:
+    external: true
+    name: bulkmail_oidc_session_encryption_key

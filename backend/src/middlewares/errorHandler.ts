@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import { OidcError } from '../services/oidcService';
 
 /**
  * HTTP Exception class
@@ -27,7 +28,9 @@ export const httpErrorHandler = (
   _next: NextFunction
 ): void => {
   const statusCode = err.statusCode || 500;
-  const message = err.isOperational ? err.message : 'Internal server error';
+  const message = err instanceof OidcError
+    ? 'Authentication could not be completed'
+    : err.isOperational ? err.message : 'Internal server error';
 
   console.error(`[ERROR] ${statusCode}: ${err.message}`);
 

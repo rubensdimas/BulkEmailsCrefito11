@@ -14,11 +14,6 @@ require_command git
 load_production_env
 require_swarm_manager
 
-if [ "${ALLOW_UNAUTHENTICATED_ADMIN:-false}" != "true" ]; then
-  echo "Refusing public deploy without explicit ALLOW_UNAUTHENTICATED_ADMIN=true." >&2
-  exit 1
-fi
-
 for resource_name in CrefitoNet bulkmail_internal; do
   docker network inspect "$resource_name" >/dev/null 2>&1 || {
     echo "Required network not found: $resource_name" >&2
@@ -33,7 +28,7 @@ for volume_name in bulkmail_postgres_data bulkmail_redis_data bulkmail_backups; 
   }
 done
 
-for secret_name in bulkmail_postgres_password bulkmail_redis_password bulkmail_mailgrid_password bulkmail_mailgrid_webhook_token bulkmail_config_encryption_key; do
+for secret_name in bulkmail_postgres_password bulkmail_redis_password bulkmail_mailgrid_password bulkmail_mailgrid_webhook_token bulkmail_config_encryption_key bulkmail_oidc_client_secret bulkmail_oidc_session_encryption_key; do
   docker secret inspect "$secret_name" >/dev/null 2>&1 || {
     echo "Required Docker secret not found: $secret_name" >&2
     exit 1
@@ -46,7 +41,7 @@ if [ "${SKIP_BUILD:-false}" != "true" ]; then
   BACKEND_IMAGE="bulkmail-backend:$release_id"
   FRONTEND_IMAGE="bulkmail-frontend:$release_id"
   docker build --pull --label "org.opencontainers.image.revision=$release_id" -f "$PROJECT_ROOT/backend/Dockerfile" -t "$BACKEND_IMAGE" "$PROJECT_ROOT"
-  docker build --pull --label "org.opencontainers.image.revision=$release_id" --build-arg VITE_API_URL=/api -f "$PROJECT_ROOT/frontend/Dockerfile" -t "$FRONTEND_IMAGE" "$PROJECT_ROOT/frontend"
+  docker build --pull --label "org.opencontainers.image.revision=$release_id" --build-arg VITE_API_URL=/api --build-arg VITE_AUTH_ENABLED=true -f "$PROJECT_ROOT/frontend/Dockerfile" -t "$FRONTEND_IMAGE" "$PROJECT_ROOT/frontend"
 else
   : "${BACKEND_IMAGE:?BACKEND_IMAGE is required when SKIP_BUILD=true}"
   : "${FRONTEND_IMAGE:?FRONTEND_IMAGE is required when SKIP_BUILD=true}"

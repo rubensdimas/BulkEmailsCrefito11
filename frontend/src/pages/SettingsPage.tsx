@@ -2,6 +2,7 @@ import { useState, useEffect, type ChangeEvent, type FormEvent } from 'react';
 import axios from 'axios';
 import { Link } from 'react-router-dom';
 import { getMailgridConfig, updateMailgridConfig, testMailgridConfig, MailgridConfig } from '../services/api';
+import { AccountMenu } from '../components/Auth/AccountMenu';
 
 interface ApiErrorResponse {
   error?: string;
@@ -141,6 +142,7 @@ export function SettingsPage() {
             <p className="text-gray-600 mt-1">Gerencie as credenciais da API Mailgrid</p>
           </div>
           <div className="flex gap-3">
+            <AccountMenu />
             <Link
               to="/dashboard"
               className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"

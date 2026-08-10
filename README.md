@@ -19,6 +19,14 @@ Requisitos: Docker Engine com Compose v2.
 
 ```bash
 cp .env.example .env
+mkdir -p .secrets
+read -r -s "OIDC_CLIENT_SECRET?Segredo do cliente OIDC: "
+printf '%s' "$OIDC_CLIENT_SECRET" > .secrets/oidc_client_secret
+unset OIDC_CLIENT_SECRET
+openssl rand -hex 32 > .secrets/oidc_session_encryption_key
+chmod 600 .secrets/oidc_client_secret .secrets/oidc_session_encryption_key
+# Para o SPI local da intranet, mantenha OIDC_ISSUER=http://127.0.0.1:8080
+# e OIDC_BACKCHANNEL_ORIGIN=http://host.docker.internal:8080 no .env.
 docker compose up -d --build
 docker compose ps
 docker compose logs -f backend worker
@@ -38,12 +46,53 @@ Para atualizar o ambiente local:
 docker compose up -d --build
 ```
 
+Para aplicar somente alterações do backend, sem recriar frontend, worker ou
+serviços de dados:
+
+```bash
+docker compose up -d --build backend
+docker compose ps backend
+docker compose logs --tail 200 backend
+curl --fail http://localhost:3000/api/health/ready
+```
+
+Se o backend encerrar ao iniciar, valide os valores efetivos sem expor os
+segredos:
+
+```bash
+docker compose config
+```
+
+O serviço exige `APP_ORIGIN`, `OIDC_ISSUER`, `OIDC_CLIENT_ID` e os arquivos
+`.secrets/oidc_client_secret` e `.secrets/oidc_session_encryption_key`.
+
 As dependências locais são fornecidas pela imagem Docker a partir do
 `package-lock.json`. Não execute `npm install` dentro dos containers. Após
 alterar dependências, basta repetir o comando acima; os volumes do PostgreSQL
 e Redis permanecem preservados.
 
 `docker compose down -v` apaga os dados locais e não deve ser usado em produção.
+
+Para o SPI local da intranet, `OIDC_ISSUER` permanece em
+`http://127.0.0.1:8080`: essa é a URL pública usada pelo navegador e pelo
+`issuer` do token. `OIDC_BACKCHANNEL_ORIGIN=http://host.docker.internal:8080`
+é usado somente pelo backend no container para discovery, JWKS, token,
+userinfo e revogação. O Compose mapeia esse hostname para o host Docker.
+
+Ao executar o backend diretamente no host, deixe o backchannel vazio, pois o
+loopback já aponta para o provedor local:
+
+```bash
+docker compose up -d postgres redis
+
+cd backend
+OIDC_BACKCHANNEL_ORIGIN= npm run dev
+
+cd ../frontend
+VITE_AUTH_ENABLED=true npm run dev
+```
+
+Os cenários e resultados esperados estão em [docs/oidc-testing.md](docs/oidc-testing.md).
 
 ## Configuração
 
@@ -72,9 +121,12 @@ mkdir -p deploy/secrets
 chmod 700 deploy/secrets
 printf '%s' 'SENHA_REAL_MAILGRID' > deploy/secrets/mailgrid_password
 chmod 600 deploy/secrets/mailgrid_password
+printf '%s' 'SEGREDO_OIDC_FORNECIDO_PELA_TI' > deploy/secrets/oidc_client_secret
+chmod 600 deploy/secrets/oidc_client_secret
 ```
 
-Revise `deploy/production.env`. A opção `ALLOW_UNAUTHENTICATED_ADMIN=true` é obrigatória no estado atual e registra conscientemente que o painel ainda não possui login.
+Revise `deploy/production.env` e configure `OIDC_ISSUER` e `OIDC_CLIENT_ID`.
+O bootstrap gera a chave de cifragem de sessões OIDC e cria os Docker Secrets.
 
 Execute o bootstrap uma única vez:
 
@@ -150,8 +202,8 @@ O ambiente de produção aplica:
 - validação de assinatura de planilha e uploads temporários em memória;
 - remoção automática das planilhas após processamento;
 - erros internos ocultos em produção.
-
-> **Risco conhecido:** o painel ainda não possui autenticação. Quem acessar o domínio poderá tentar enviar campanhas e alterar configurações. Rate limiting não substitui autenticação. Antes de disponibilizar o domínio para acesso público irrestrito, implemente SSO, VPN, allowlist ou login da aplicação.
+- autenticação obrigatória OIDC com Authorization Code, PKCE S256, cookies HttpOnly e sessões Redis;
+- refresh tokens cifrados e restritos ao backend.
 
 O webhook Mailgrid continua protegido por `Authorization: Bearer <TOKEN>`:
 

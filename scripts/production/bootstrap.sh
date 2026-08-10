@@ -34,7 +34,9 @@ umask 077
 [ -s "$SECRETS_DIR/redis_password" ] || openssl rand -base64 36 > "$SECRETS_DIR/redis_password"
 [ -s "$SECRETS_DIR/mailgrid_webhook_token" ] || openssl rand -hex 32 > "$SECRETS_DIR/mailgrid_webhook_token"
 [ -s "$SECRETS_DIR/config_encryption_key" ] || openssl rand -hex 32 > "$SECRETS_DIR/config_encryption_key"
+[ -s "$SECRETS_DIR/oidc_session_encryption_key" ] || openssl rand -hex 32 > "$SECRETS_DIR/oidc_session_encryption_key"
 require_file "$SECRETS_DIR/mailgrid_password"
+require_file "$SECRETS_DIR/oidc_client_secret"
 
 create_secret() {
   secret_name="$1"
@@ -49,5 +51,7 @@ create_secret bulkmail_redis_password "$SECRETS_DIR/redis_password"
 create_secret bulkmail_mailgrid_password "$SECRETS_DIR/mailgrid_password"
 create_secret bulkmail_mailgrid_webhook_token "$SECRETS_DIR/mailgrid_webhook_token"
 create_secret bulkmail_config_encryption_key "$SECRETS_DIR/config_encryption_key"
+create_secret bulkmail_oidc_client_secret "$SECRETS_DIR/oidc_client_secret"
+create_secret bulkmail_oidc_session_encryption_key "$SECRETS_DIR/oidc_session_encryption_key"
 
 exec "$SCRIPT_DIR/deploy.sh" --skip-backup

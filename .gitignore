@@ -6,6 +6,7 @@
 .env.*.local
 deploy/production.env
 deploy/secrets/
+.secrets/
 *.key
 *.pem
 

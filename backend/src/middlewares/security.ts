@@ -6,12 +6,6 @@ import rateLimit from 'express-rate-limit';
 const isProduction = process.env.NODE_ENV === 'production';
 
 export const configureSecurity = (app: Express): void => {
-  if (isProduction && process.env.ALLOW_UNAUTHENTICATED_ADMIN !== 'true') {
-    throw new Error(
-      'Public administration is disabled. Set ALLOW_UNAUTHENTICATED_ADMIN=true only after accepting the exposure risk.',
-    );
-  }
-
   app.disable('x-powered-by');
   if (isProduction) app.set('trust proxy', 1);
 
@@ -23,6 +17,7 @@ export const configureSecurity = (app: Express): void => {
   const allowedOrigin = process.env.APP_ORIGIN;
   app.use(cors({
     origin: allowedOrigin || (isProduction ? false : true),
+    credentials: Boolean(allowedOrigin),
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     maxAge: 86400,

@@ -92,6 +92,11 @@ chmod 600 deploy/secrets/mailgrid_password
 ./scripts/production/bootstrap.sh
 ```
 
+Para o segredo do cliente OIDC, use o nome `bulkmail_oidc_client_secret` e o
+arquivo local `deploy/secrets/oidc_client_secret`. A chave
+`bulkmail_oidc_session_encryption_key` é gerada pelo bootstrap e deve ser
+rotacionada junto com as sessões, invalidando os logins existentes.
+
 Para PostgreSQL e Redis, alterar apenas o Docker Secret não muda automaticamente a credencial persistida no serviço. Essas rotações exigem atualização coordenada da senha no banco/Redis e devem ser executadas em janela de manutenção.
 
 ## Reset total para ambiente novo
