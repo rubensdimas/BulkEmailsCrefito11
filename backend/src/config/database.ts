@@ -4,6 +4,7 @@
  */
 import knex, { type Knex } from 'knex';
 import dotenv from 'dotenv';
+import { readSecret } from './secret';
 
 // Load environment variables
 dotenv.config();
@@ -35,7 +36,11 @@ const dbConfig: DatabaseConfig = {
     host: process.env.POSTGRES_HOST || 'localhost',
     port: parseInt(process.env.POSTGRES_PORT || '5432', 10),
     user: process.env.POSTGRES_USER || 'bulkmail',
-    password: process.env.POSTGRES_PASSWORD || 'bulkmail123',
+    password: readSecret(
+      'POSTGRES_PASSWORD',
+      'POSTGRES_PASSWORD_FILE',
+      process.env.NODE_ENV === 'production' ? undefined : 'bulkmail123',
+    ) || '',
     database: process.env.POSTGRES_DB || 'bulkmail',
   },
   pool: {

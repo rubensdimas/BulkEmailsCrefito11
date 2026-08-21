@@ -3,6 +3,7 @@
  */
 import Bull, { Queue } from 'bull';
 import { generateUniqueHash } from '../services/idempotencyService';
+import { readSecret } from '../config/secret';
 
 // Queue name
 export const EMAIL_QUEUE_NAME = 'email-queue';
@@ -87,7 +88,7 @@ const createQueue = () => {
     redis: {
       host: process.env.REDIS_HOST || 'localhost',
       port: parseInt(process.env.REDIS_PORT || '6379', 10),
-      password: process.env.REDIS_PASSWORD,
+      password: readSecret('REDIS_PASSWORD', 'REDIS_PASSWORD_FILE'),
     },
   });
 };

@@ -3,12 +3,13 @@
  * Connection settings and pool configuration
  */
 import Redis, { RedisOptions } from 'ioredis';
+import { readSecret } from './secret';
 
 // Redis connection options
 const getRedisOptions = (): RedisOptions => {
   const host = process.env.REDIS_HOST || 'localhost';
   const port = parseInt(process.env.REDIS_PORT || '6379', 10);
-  const password = process.env.REDIS_PASSWORD;
+  const password = readSecret('REDIS_PASSWORD', 'REDIS_PASSWORD_FILE');
 
   const options: RedisOptions = {
     host,
@@ -64,7 +65,7 @@ export const closeRedisConnection = async (): Promise<void> => {
 export const redisOptions = {
   host: process.env.REDIS_HOST || 'localhost',
   port: parseInt(process.env.REDIS_PORT || '6379', 10),
-  password: process.env.REDIS_PASSWORD,
+  password: readSecret('REDIS_PASSWORD', 'REDIS_PASSWORD_FILE'),
   prefix: process.env.REDIS_PREFIX || 'bulkmail',
 };
 

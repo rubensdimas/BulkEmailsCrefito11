@@ -9,7 +9,8 @@
       "Malformed Bull timestamps could create invalid PostgreSQL dates; reconciliation now falls back to a valid current timestamp.",
       "Treating a hash absent from PostgreSQL as absent from Redis could hide legacy orphan jobs from this incident; the normal endpoint now always inspects Bull and only scoped recovery may use a dry-run-proven missing set.",
       "Reusing a campaignId with changed template variables could enqueue content different from the persisted campaign; canonical payload comparison now rejects it with HTTP 409.",
-      "A webhook may advance a sent log to delivered or bounce before reconciliation; compatible terminal progression is now preserved instead of being reported as a conflict."
+      "A webhook may advance a sent log to delivered or bounce before reconciliation; compatible terminal progression is now preserved instead of being reported as a conflict.",
+      "Production Docker services expose credentials through *_FILE variables; ignoring those variables makes the backend fall back to development credentials while backup scripts still authenticate successfully. The shared secret reader now covers PostgreSQL, migrations, Redis and Bull."
     ],
     "edgeCases": [
       "An empty recipient batch returns a zero summary without opening a transaction.",

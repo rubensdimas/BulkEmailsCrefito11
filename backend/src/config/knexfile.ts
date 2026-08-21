@@ -1,5 +1,6 @@
 import type { Knex } from 'knex';
 import path from 'node:path';
+import { readSecret } from './secret';
 
 const config: Record<string, Knex.Config> = {
   production: {
@@ -8,7 +9,7 @@ const config: Record<string, Knex.Config> = {
       host: process.env.POSTGRES_HOST,
       port: Number(process.env.POSTGRES_PORT || 5432),
       user: process.env.POSTGRES_USER,
-      password: process.env.POSTGRES_PASSWORD,
+      password: readSecret('POSTGRES_PASSWORD', 'POSTGRES_PASSWORD_FILE'),
       database: process.env.POSTGRES_DB,
     },
     pool: { min: 1, max: 5 },
