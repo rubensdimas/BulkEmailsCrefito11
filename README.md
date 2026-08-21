@@ -148,6 +148,17 @@ As labels Traefik permanecem iguais às existentes: router `bulkmail`, entrypoin
 
 ## Publicar uma atualização
 
+Se a stack tiver sido removida e os volumes externos ainda existirem, não use o
+deploy normal. Inicie pelo modo seguro de recuperação:
+
+```bash
+./scripts/production/deploy.sh --maintenance-recovery
+```
+
+Esse modo cria snapshots offline e mantém o worker em zero réplicas. Consulte o
+[runbook de produção](docs/production.md#recuperação-com-stack-removida-e-volumes-preservados)
+para reconciliar os jobs preservados no Redis antes de retomar os envios.
+
 Depois de atualizar o código na VPS:
 
 ```bash

@@ -9,15 +9,19 @@ import {
   addEmailJob,
   addBulkEmailJobs,
   EmailJobData,
+  EmailQueueEnqueueSummary,
 } from "../queue/emailQueue";
 import {
-  getJobRepository,
   getEmailLogRepository,
   isDatabaseReady,
 } from "../services/databaseService";
+import { getDatabase } from "../config/database";
+import { JobRepository } from "../repositories/jobRepository";
+import { EmailLogRepository } from "../repositories/emailLogRepository";
 import { generateUniqueHash, wasEmailSent } from "../services/idempotencyService";
 import { CreateJobInput, Job } from "../models/Job";
 import { CreateEmailLogInput } from "../models/EmailLog";
+import { HttpException } from "../middlewares/errorHandler";
 
 // Request interface for sending emails
 export interface SendEmailRequest {
@@ -44,6 +48,7 @@ export interface SendJobResponse {
   invalidEmails: number;
   message: string;
   timestamp: string;
+  queue?: Omit<EmailQueueEnqueueSummary, 'entries'>;
 }
 
 /**
@@ -57,6 +62,43 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  */
 const DEFAULT_FROM = process.env.MAILGRID_SENDER || process.env.SMTP_SENDER || "noreply@bulkmail.com";
 const DEFAULT_FROM_NAME = process.env.MAILGRID_SENDER_NAME || process.env.SMTP_SENDER_NAME || "BulkMail Pro";
+
+const canonicalJson = (value: unknown): string => {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${canonicalJson(entry)}`);
+    return `{${entries.join(',')}}`;
+  }
+  return JSON.stringify(value ?? null);
+};
+
+const campaignPayloadMatches = (job: Job, input: CreateJobInput): boolean => (
+  job.campaign_id === input.campaign_id
+  && job.subject === input.subject
+  && job.html === (input.html ?? null)
+  && job.text === (input.text ?? null)
+  && job.from_address.toLowerCase() === input.from_address.toLowerCase()
+  && job.from_name === (input.from_name ?? null)
+  && job.reply_to === (input.reply_to ?? null)
+  && job.template_id === (input.template_id ?? null)
+  && canonicalJson(job.variables) === canonicalJson(input.variables)
+);
+
+const queueCounts = (
+  summary: EmailQueueEnqueueSummary,
+): Omit<EmailQueueEnqueueSummary, 'entries'> => ({
+  requested: summary.requested,
+  created: summary.created,
+  waiting: summary.waiting,
+  paused: summary.paused,
+  delayed: summary.delayed,
+  active: summary.active,
+  completed: summary.completed,
+  failed: summary.failed,
+  uncertain: summary.uncertain,
+});
 
 /**
  * Validate and clean email list
@@ -153,95 +195,92 @@ export const sendEmails = async (
     const senderAddress = from || DEFAULT_FROM;
     const senderName = DEFAULT_FROM_NAME;
 
-    // Check for database availability
-    const dbReady = isDatabaseReady();
+    if (!isDatabaseReady()) {
+      res.status(503).json({
+        success: false,
+        campaignId: campaign,
+        retryable: true,
+        error: "Database is not ready; no email jobs were queued",
+      });
+      return;
+    }
 
-    // Check for duplicates (idempotency) only if DB is available
+    // Resolve idempotency states in bounded queries instead of one query per recipient.
     const duplicates: string[] = [];
+    const manualRetry: string[] = [];
     const toSend: string[] = [];
+    const hashes = new Map(valid.map((email) => [
+      email,
+      generateUniqueHash(campaign, email, subject, senderAddress),
+    ]));
+    const existingStates = await getEmailLogRepository()
+      .findStatesByUniqueHashes([...hashes.values()]);
 
-    if (dbReady) {
-      try {
-        const emailLogRepo = getEmailLogRepository();
-        for (const email of valid) {
-          const uniqueHash = generateUniqueHash(
-            campaign,
-            email,
-            subject,
-            senderAddress,
-          );
-          const existing = await emailLogRepo.findByUniqueHash(uniqueHash);
-
-          if (existing && wasEmailSent(existing.status)) {
-            duplicates.push(email);
-          } else {
-            toSend.push(email);
-          }
-        }
-      } catch {
-        console.warn("⚠️  Database check failed, skipping idempotency");
-        toSend.push(...valid);
-      }
-    } else {
-      toSend.push(...valid);
+    for (const email of valid) {
+      const state = existingStates.get(hashes.get(email)!);
+      if (wasEmailSent(state)) duplicates.push(email);
+      else if (state === 'failed' || state === 'bounced') manualRetry.push(email);
+      else toSend.push(email);
     }
 
-    // Create or update job in database only if DB is available
-    let job: Pick<Job, "id"> = { id: campaign };
-
-    if (dbReady) {
-      try {
-        const jobRepo = getJobRepository();
-        const jobInput: CreateJobInput = {
-          campaign_id: campaign,
-          subject,
-          html: html || null,
-          text: text || null,
-          from_address: senderAddress,
-          from_name: senderName,
-          reply_to: replyTo || null,
-          template_id: templateId || null,
-          variables: variables || null,
-          priority: "normal",
-          throttle_rate: parseInt(process.env.THROTTLE_RATE || "50", 10),
-          total_recipients: emails.length,
-          valid_recipients: toSend.length,
-          invalid_recipients: invalid.length,
-        };
-
-        try {
-          job = await jobRepo.create(jobInput);
-        } catch (err) {
-          const existing = await jobRepo.findByCampaignId(campaign);
-          if (existing) {
-            job = existing;
-          } else {
-            throw err;
-          }
-        }
-      } catch {
-        console.warn("⚠️  Database unavailable, running in queue-only mode");
-      }
+    if (manualRetry.length > 0) {
+      const existingJob = await new JobRepository(getDatabase()).findByCampaignId(campaign);
+      res.status(409).json({
+        success: false,
+        code: 'CAMPAIGN_MANUAL_RETRY_REQUIRED',
+        campaignId: campaign,
+        jobId: existingJob?.id,
+        retryable: false,
+        recipients: manualRetry,
+        error: 'Failed recipients require explicit confirmation before retry',
+      });
+      return;
     }
 
-    // Create email logs only if DB is available
-    if (dbReady && toSend.length > 0) {
-      try {
-        const emailLogRepo = getEmailLogRepository();
-        const emailLogInputs: CreateEmailLogInput[] = toSend.map((to) => ({
-          job_id: job.id,
-          recipient_email: to,
-          subject,
-          from_address: senderAddress,
-          from_name: senderName,
-          unique_hash: generateUniqueHash(campaign, to, subject, senderAddress),
-        }));
+    // Persist the campaign and every recipient before touching Redis.
+    const jobInput: CreateJobInput = {
+      campaign_id: campaign,
+      subject,
+      html: html || null,
+      text: text || null,
+      from_address: senderAddress,
+      from_name: senderName,
+      reply_to: replyTo || null,
+      template_id: templateId || null,
+      variables: variables || null,
+      priority: "normal",
+      throttle_rate: parseInt(process.env.THROTTLE_RATE || "50", 10),
+      total_recipients: emails.length,
+      valid_recipients: toSend.length,
+      invalid_recipients: invalid.length,
+    };
 
-        await emailLogRepo.createBatch(emailLogInputs);
-      } catch (err) {
-        console.warn("Could not create email logs:", err);
+    const database = getDatabase();
+    const persistence = await database.transaction(async (transaction) => {
+      const jobRepo = new JobRepository(transaction);
+      const emailLogRepo = new EmailLogRepository(transaction);
+      const persistedJob = await jobRepo.create(jobInput);
+      if (!campaignPayloadMatches(persistedJob, jobInput)) {
+        throw new HttpException('Campaign ID already exists with a different payload', 409);
       }
-    }
+      const emailLogInputs: CreateEmailLogInput[] = toSend.map((to) => ({
+        job_id: persistedJob.id,
+        recipient_email: to,
+        subject,
+        from_address: senderAddress,
+        from_name: senderName,
+        unique_hash: hashes.get(to)!,
+      }));
+      const batch = await emailLogRepo.createBatch(emailLogInputs, transaction);
+      return { job: persistedJob, batch };
+    });
+    const job: Pick<Job, "id"> = persistence.job;
+    console.info("Email logs persisted", {
+      campaignId: campaign,
+      requested: persistence.batch.requested,
+      inserted: persistence.batch.inserted,
+      existing: persistence.batch.existing,
+    });
 
     // Create job data for queue
     const jobsData: EmailJobData[] = toSend.map((to) => ({
@@ -254,26 +293,47 @@ export const sendEmails = async (
       templateId,
       variables,
       campaignId: campaign,
+      idempotencyKey: hashes.get(to),
     }));
 
-    // Add jobs to queue (fire-and-forget for immediate response)
-    if (jobsData.length === 1) {
-      addEmailJob(jobsData[0])
-        .then((queueJob) =>
-          console.log(`📬 Added 1 job to queue: ${queueJob.id}`),
-        )
-        .catch((err) => console.error("Failed to add job to queue:", err));
-    } else {
-      addBulkEmailJobs(jobsData)
-        .then(() => console.log(`📬 Added ${jobsData.length} jobs to queue`))
-        .catch((err) => console.error("Failed to add jobs to queue:", err));
-    }
+    try {
+      let queueSummary: EmailQueueEnqueueSummary | null = null;
+      if (jobsData.length === 1) queueSummary = await addEmailJob(jobsData[0]);
+      else if (jobsData.length > 1) queueSummary = await addBulkEmailJobs(jobsData);
 
-    // Update job status to processing only if DB is available (fire-and-forget)
-    if (dbReady) {
-      getJobRepository()
-        .updateStatus(job.id, "processing")
-        .catch((err) => console.warn("Could not update job status:", err));
+      if (queueSummary && (queueSummary.failed > 0 || queueSummary.completed > 0 || queueSummary.uncertain > 0)) {
+        const code = queueSummary.failed > 0
+          ? 'CAMPAIGN_MANUAL_RETRY_REQUIRED'
+          : 'CAMPAIGN_RECONCILIATION_REQUIRED';
+        res.status(409).json({
+          success: false,
+          code,
+          campaignId: campaign,
+          jobId: job.id,
+          retryable: false,
+          queue: queueCounts(queueSummary),
+          error: 'Existing terminal or uncertain Bull jobs require reconciliation',
+        });
+        return;
+      }
+
+      if (jobsData.length > 0) {
+        await new JobRepository(database).updateStatus(job.id, "processing");
+      }
+    } catch (error) {
+      console.error("Campaign persisted but queueing is incomplete", {
+        campaignId: campaign,
+        recipientCount: jobsData.length,
+        error: error instanceof Error ? error.message : "unknown_error",
+      });
+      res.status(503).json({
+        success: false,
+        campaignId: campaign,
+        jobId: job.id,
+        retryable: true,
+        error: "Campaign was persisted but queueing is incomplete",
+      });
+      return;
     }
 
     // Return response

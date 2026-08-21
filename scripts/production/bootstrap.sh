@@ -6,9 +6,22 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 . "$SCRIPT_DIR/common.sh"
 
 require_command docker
+require_command mktemp
 require_command openssl
 load_production_env
 require_swarm_manager
+
+stack_exists=false
+docker service inspect "${STACK_NAME}_postgres" >/dev/null 2>&1 && stack_exists=true
+preserved_volumes=false
+for volume_name in bulkmail_postgres_data bulkmail_redis_data bulkmail_backups; do
+  docker volume inspect "$volume_name" >/dev/null 2>&1 && preserved_volumes=true
+done
+if [ "$stack_exists" = false ] && [ "$preserved_volumes" = true ]; then
+  echo "Preserved data volumes exist while the stack is absent." >&2
+  echo "Refusing bootstrap because it would start the worker. Use deploy.sh --maintenance-recovery." >&2
+  exit 1
+fi
 
 docker network inspect CrefitoNet >/dev/null 2>&1 || {
   echo "The existing Traefik network CrefitoNet was not found." >&2
@@ -54,4 +67,16 @@ create_secret bulkmail_config_encryption_key "$SECRETS_DIR/config_encryption_key
 create_secret bulkmail_oidc_client_secret "$SECRETS_DIR/oidc_client_secret"
 create_secret bulkmail_oidc_session_encryption_key "$SECRETS_DIR/oidc_session_encryption_key"
 
-exec "$SCRIPT_DIR/deploy.sh" --skip-backup
+if [ "$stack_exists" = true ]; then
+  exec "$SCRIPT_DIR/deploy.sh"
+fi
+
+bootstrap_token=$(openssl rand -hex 24)
+bootstrap_guard=$(mktemp "${TMPDIR:-/tmp}/bulkmail-bootstrap.XXXXXX")
+trap 'rm -f "$bootstrap_guard"' EXIT
+trap 'exit 130' HUP INT TERM
+chmod 600 "$bootstrap_guard"
+printf '%s\n' "${STACK_NAME}:${bootstrap_token}:$$" > "$bootstrap_guard"
+export BULKMAIL_BOOTSTRAP_TOKEN="$bootstrap_token"
+export BULKMAIL_BOOTSTRAP_CALLER_PID="$$"
+"$SCRIPT_DIR/deploy.sh" --skip-backup --initial-bootstrap "--bootstrap-guard=$bootstrap_guard"

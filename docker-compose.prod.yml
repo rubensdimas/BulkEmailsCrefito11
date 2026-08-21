@@ -109,7 +109,7 @@ services:
       retries: 5
       start_period: 30s
     deploy:
-      replicas: 1
+      replicas: ${BACKEND_REPLICAS:-1}
       restart_policy:
         condition: on-failure
       update_config:
@@ -142,7 +142,7 @@ services:
       until pg_isready -h postgres -p 5432 -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\"; do sleep 2; done &&
       echo 'Starting worker...' && node dist/queue/emailWorker.js"
     deploy:
-      replicas: 1
+      replicas: ${WORKER_REPLICAS:-1}
       restart_policy:
         condition: on-failure
       update_config:
@@ -190,7 +190,7 @@ services:
         sleep 86400;
       done'
     deploy:
-      replicas: 1
+      replicas: ${BACKUP_REPLICAS:-1}
       placement:
         constraints:
           - node.labels.bulkmail.data == true
@@ -213,7 +213,7 @@ services:
       retries: 5
       start_period: 10s
     deploy:
-      replicas: 1
+      replicas: ${FRONTEND_REPLICAS:-1}
       restart_policy:
         condition: on-failure
       update_config:

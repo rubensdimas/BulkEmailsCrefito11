@@ -6,6 +6,7 @@ import type { Knex } from 'knex';
 import { v4 as uuidv4 } from 'uuid';
 import {
   EmailLog,
+  EmailLogStatus,
   EmailLogRow,
   CreateEmailLogInput,
   UpdateEmailLogInput,
@@ -15,6 +16,15 @@ import {
   shouldApplyMailgridWebhookEvent,
   emailLogFromRow,
 } from '../models/EmailLog';
+
+export const EMAIL_LOG_INSERT_CHUNK_SIZE = 1000;
+const EMAIL_LOG_LOOKUP_CHUNK_SIZE = 1000;
+
+export interface EmailLogBatchResult {
+  requested: number;
+  inserted: number;
+  existing: number;
+}
 
 /**
  * EmailLogRepository class
@@ -79,56 +89,84 @@ export class EmailLogRepository {
   /**
    * Create multiple email logs in batch
    */
-  async createBatch(inputs: CreateEmailLogInput[]): Promise<EmailLog[]> {
-    if (inputs.length === 0) return [];
-
-    const now = new Date();
-    const jobId = inputs[0].job_id;
-
-    // Get existing hashes for this job
-    const existingLogs = await this.db('email_logs')
-      .where('job_id', jobId)
-      .select('unique_hash')
-      .then(rows => new Set(rows.map((r: { unique_hash: string }) => r.unique_hash)));
-
-    // Filter out duplicates
-    const newInputs = inputs.filter(input => !existingLogs.has(input.unique_hash));
-
-    if (newInputs.length > 0) {
-      const values = newInputs.map((input) => ({
-        id: uuidv4(),
-        job_id: input.job_id,
-        recipient_email: input.recipient_email,
-        subject: input.subject,
-        from_address: input.from_address,
-        from_name: input.from_name ?? null,
-        status: 'pending' as const,
-        error_message: null,
-        error_code: null,
-        unique_hash: input.unique_hash,
-        mailgrid_message_id: null,
-        delivered_at: null,
-        mailgrid_sent_at: null,
-        mailgrid_event_at: null,
-        webhook_received_at: null,
-        mailgrid_status_code: null,
-        mailgrid_status_message: null,
-        mailgrid_payload: null,
-        sent_at: null,
-        opened_at: null,
-        clicked_at: null,
-        bounces_at: null,
-        retry_count: 0,
-        created_at: now,
-        updated_at: now,
-      }));
-
-      await this.db('email_logs').insert(values);
+  async createBatch(
+    inputs: CreateEmailLogInput[],
+    transaction?: Knex.Transaction,
+  ): Promise<EmailLogBatchResult> {
+    if (inputs.length === 0) {
+      return { requested: 0, inserted: 0, existing: 0 };
     }
 
-    // Get all records for this job
-    const rows = await this.db('email_logs').where('job_id', jobId).select('*');
-    return rows.map((row) => emailLogFromRow(row as unknown as EmailLogRow));
+    const insert = async (executor: Knex | Knex.Transaction): Promise<EmailLogBatchResult> => {
+      const now = new Date();
+      let inserted = 0;
+
+      for (let offset = 0; offset < inputs.length; offset += EMAIL_LOG_INSERT_CHUNK_SIZE) {
+        const chunk = inputs.slice(offset, offset + EMAIL_LOG_INSERT_CHUNK_SIZE);
+        const values = chunk.map((input) => ({
+          id: uuidv4(),
+          job_id: input.job_id,
+          recipient_email: input.recipient_email,
+          subject: input.subject,
+          from_address: input.from_address,
+          from_name: input.from_name ?? null,
+          status: 'pending' as const,
+          error_message: null,
+          error_code: null,
+          unique_hash: input.unique_hash,
+          mailgrid_message_id: null,
+          delivered_at: null,
+          mailgrid_sent_at: null,
+          mailgrid_event_at: null,
+          webhook_received_at: null,
+          mailgrid_status_code: null,
+          mailgrid_status_message: null,
+          mailgrid_payload: null,
+          sent_at: null,
+          opened_at: null,
+          clicked_at: null,
+          bounces_at: null,
+          retry_count: 0,
+          created_at: now,
+          updated_at: now,
+        }));
+
+        const rows = await executor('email_logs')
+          .insert(values)
+          .onConflict('unique_hash')
+          .ignore()
+          .returning('unique_hash');
+        inserted += rows.length;
+      }
+
+      return {
+        requested: inputs.length,
+        inserted,
+        existing: inputs.length - inserted,
+      };
+    };
+
+    if (transaction) return insert(transaction);
+    return this.db.transaction((trx) => insert(trx));
+  }
+
+  /**
+   * Load existing log states without creating a query with an unsafe number of
+   * PostgreSQL bind parameters.
+   */
+  async findStatesByUniqueHashes(uniqueHashes: string[]): Promise<Map<string, EmailLogStatus>> {
+    const states = new Map<string, EmailLogStatus>();
+    const hashes = [...new Set(uniqueHashes)];
+
+    for (let offset = 0; offset < hashes.length; offset += EMAIL_LOG_LOOKUP_CHUNK_SIZE) {
+      const chunk = hashes.slice(offset, offset + EMAIL_LOG_LOOKUP_CHUNK_SIZE);
+      const rows = await this.db('email_logs')
+        .whereIn('unique_hash', chunk)
+        .select('unique_hash', 'status') as Array<{ unique_hash: string; status: EmailLogStatus }>;
+      for (const row of rows) states.set(row.unique_hash, row.status);
+    }
+
+    return states;
   }
 
   /**

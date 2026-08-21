@@ -2,6 +2,112 @@
 
 Este documento contém operações administrativas e potencialmente destrutivas. Execute os comandos somente no manager Swarm que hospeda os volumes locais do BulkMail.
 
+## Recuperação com stack removida e volumes preservados
+
+Quando a stack tiver sido removida pelo Portainer, não execute o deploy normal. O
+deploy normal é bloqueado nesse cenário para impedir que o worker consuma
+automaticamente os jobs preservados no Redis.
+
+Confirme primeiro que os três volumes externos existem:
+
+```bash
+docker volume inspect bulkmail_postgres_data
+docker volume inspect bulkmail_redis_data
+docker volume inspect bulkmail_backups
+```
+
+Inicie a recuperação em modo de manutenção:
+
+```bash
+./scripts/production/deploy.sh --maintenance-recovery
+```
+
+Esse comando cria e valida snapshots offline dos três volumes em
+`deploy/recovery-snapshots/<timestamp>/`, sobe PostgreSQL e Redis e mantém
+backend, worker, frontend e backup com zero réplicas. Mova uma cópia dos
+snapshots para armazenamento externo antes de continuar.
+
+Valide os logs dos serviços de dados e crie os backups lógicos:
+
+```bash
+docker service logs --tail 200 bulkmail_postgres
+docker service logs --tail 200 bulkmail_redis
+docker service scale bulkmail_backup=1
+./scripts/production/backup.sh
+./scripts/production/backup-redis.sh
+```
+
+Suba apenas o backend. O frontend e principalmente o worker devem permanecer em
+zero:
+
+```bash
+docker service scale bulkmail_backend=1
+docker service scale bulkmail_frontend=0 bulkmail_worker=0
+```
+
+Localize o container do backend e execute primeiro o relatório sem alterações:
+
+```bash
+backend_container=$(docker ps --filter name=bulkmail_backend -q | head -1)
+docker exec "$backend_container" npm run reconcile:email-jobs -- --dry-run
+```
+
+O comando termina com código `2` se encontrar jobs ativos, payloads divergentes,
+destinatários ausentes ou estados de entrega incertos. Nesses casos, não execute
+`--apply` e não suba o worker. Confirme os estados incertos nos registros do
+Mailgrid pelo destinatário, horário e message ID.
+
+Para limitar a análise a uma campanha, acrescente `--campaign=ID`. O filtro vale
+tanto para jobs do Redis quanto para campanhas existentes somente no PostgreSQL.
+
+Quando o dry-run estiver sem bloqueios:
+
+```bash
+docker exec "$backend_container" npm run reconcile:email-jobs -- --apply
+docker exec "$backend_container" npm run reconcile:email-jobs -- --dry-run
+```
+
+Se o único bloqueio de uma campanha for a existência de logs `pending` sem jobs
+no Redis, confirme externamente que esses destinatários não foram enviados. O
+reenfileiramento exige o ID duas vezes e continua bloqueado se houver jobs ativos
+ou logs `processing`:
+
+```bash
+campaign_id="ID_DA_CAMPANHA_CONFIRMADA"
+docker exec "$backend_container" npm run reconcile:email-jobs -- \
+  --enqueue-missing \
+  "--campaign=$campaign_id" "--confirm-provider-unsent=$campaign_id"
+```
+
+Repita o dry-run depois dessa operação. Nunca use essa opção para um estado que
+não tenha sido conferido no Mailgrid.
+
+Jobs que terminaram como `failed` também não são reenviados automaticamente. Se
+o Mailgrid confirmar que não houve entrega, reative somente os jobs falhos da
+campanha com:
+
+```bash
+docker exec "$backend_container" npm run reconcile:email-jobs -- \
+  --retry-failed \
+  "--campaign=$campaign_id" "--confirm-provider-unsent=$campaign_id"
+```
+
+As duas operações manuais executam um novo dry-run internamente e recusam
+payload divergente, hash inválido, job ativo ou estado incerto.
+
+Depois da reconciliação, suba o frontend, valide login, readiness e dashboard e
+só então libere o worker:
+
+```bash
+docker service scale bulkmail_frontend=1
+curl --fail https://bulkmail.crefito.gov.br/api/health/ready
+docker service scale bulkmail_worker=1
+```
+
+Monitore os primeiros envios com throttling reduzido. Não restaure volumes para
+fazer rollback de imagem; os dados reconciliados são compatíveis com a versão
+anterior.
+
 ## Estado da stack
 
 ```bash
@@ -44,6 +150,7 @@ Não faça downgrade automático do React Router para eliminar o alerta: versõe
 
 ```bash
 ./scripts/production/backup.sh
+./scripts/production/backup-redis.sh
 docker run --rm -v bulkmail_backups:/backups alpine:3.22 ls -lh /backups
 ```
 
