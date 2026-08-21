@@ -13,18 +13,46 @@ import {
   EmailLogFilter,
   EmailStats,
   MailgridWebhookUpdate,
+  ImportedEmailStatusUpdate,
   shouldApplyMailgridWebhookEvent,
   emailLogFromRow,
 } from '../models/EmailLog';
 
 export const EMAIL_LOG_INSERT_CHUNK_SIZE = 1000;
 const EMAIL_LOG_LOOKUP_CHUNK_SIZE = 1000;
+export const EMAIL_STATUS_STAGE_CHUNK_SIZE = 1000;
+const EMAIL_STATUS_STAGE_TABLE = 'email_status_import_stage';
+const EMAIL_STATUS_APPLY_TABLE = 'email_status_import_apply';
 
 export interface EmailLogBatchResult {
   requested: number;
   inserted: number;
   existing: number;
 }
+
+export interface EmailStatusImportApplyResult {
+  updated: number;
+  unchanged: number;
+  ignoredStale: number;
+  notFound: number;
+  otherCampaign: number;
+  recipientMismatch: number;
+}
+
+const timestampValue = (value: Date | string | null): number | null => (
+  value ? new Date(value).getTime() : null
+);
+
+const importedStatusIsUnchanged = (
+  row: EmailLogRow,
+  input: ImportedEmailStatusUpdate,
+): boolean => (
+  row.status === input.status
+  && row.mailgrid_status_code === input.statusCode
+  && row.mailgrid_status_message === input.statusMessage
+  && timestampValue(row.mailgrid_sent_at) === timestampValue(input.sentAt)
+  && timestampValue(row.mailgrid_event_at) === timestampValue(input.eventAt)
+);
 
 /**
  * EmailLogRepository class
@@ -252,32 +280,181 @@ export class EmailLogRepository {
     messageId: string,
     input: MailgridWebhookUpdate
   ): Promise<'updated' | 'ignored' | 'not_found'> {
-    const existing = await this.findByMailgridMessageId(messageId);
-    if (!existing) return 'not_found';
+    return this.db.transaction(async (trx) => {
+      const row = await trx('email_logs')
+        .where('mailgrid_message_id', messageId)
+        .forUpdate()
+        .first();
+      if (!row) return 'not_found';
 
-    if (!shouldApplyMailgridWebhookEvent(existing.mailgrid_event_at, input.eventAt)) {
-      return 'ignored';
+      const existing = emailLogFromRow(row as unknown as EmailLogRow);
+      if (!shouldApplyMailgridWebhookEvent(existing.mailgrid_event_at, input.eventAt)) {
+        return 'ignored';
+      }
+
+      const isBounce = input.status === 'soft_bounce' || input.status === 'hard_bounce';
+      await trx('email_logs')
+        .where('id', existing.id)
+        .update({
+          status: input.status,
+          delivered_at: input.status === 'delivered'
+            ? input.eventAt || input.receivedAt
+            : existing.delivered_at,
+          bounces_at: isBounce ? input.eventAt || input.receivedAt : existing.bounces_at,
+          mailgrid_sent_at: input.sentAt || existing.mailgrid_sent_at,
+          mailgrid_event_at: input.eventAt || existing.mailgrid_event_at,
+          webhook_received_at: input.receivedAt,
+          mailgrid_status_code: input.statusCode,
+          mailgrid_status_message: input.statusMessage,
+          mailgrid_payload: input.payload,
+          updated_at: input.receivedAt,
+        });
+
+      return 'updated';
+    });
+  }
+
+  /**
+   * Apply statuses from a provider export without creating email logs.
+   * The transaction and row locks prevent a concurrent webhook from being
+   * overwritten by an older CSV event.
+   */
+  async applyImportedStatuses(
+    jobId: string,
+    updates: ImportedEmailStatusUpdate[],
+  ): Promise<EmailStatusImportApplyResult> {
+    if (updates.length === 0) {
+      return {
+        updated: 0,
+        unchanged: 0,
+        ignoredStale: 0,
+        notFound: 0,
+        otherCampaign: 0,
+        recipientMismatch: 0,
+      };
     }
 
-    const isBounce = input.status === 'soft_bounce' || input.status === 'hard_bounce';
-    await this.db('email_logs')
-      .where('id', existing.id)
-      .update({
-        status: input.status,
-        delivered_at: input.status === 'delivered'
-          ? input.eventAt || input.receivedAt
-          : existing.delivered_at,
-        bounces_at: isBounce ? input.eventAt || input.receivedAt : existing.bounces_at,
-        mailgrid_sent_at: input.sentAt || existing.mailgrid_sent_at,
-        mailgrid_event_at: input.eventAt || existing.mailgrid_event_at,
-        webhook_received_at: input.receivedAt,
-        mailgrid_status_code: input.statusCode,
-        mailgrid_status_message: input.statusMessage,
-        mailgrid_payload: input.payload,
-        updated_at: input.receivedAt,
-      });
+    return this.db.transaction(async (trx) => {
+      await trx.raw(`
+        CREATE TEMP TABLE ${EMAIL_STATUS_STAGE_TABLE} (
+          message_id VARCHAR(255) PRIMARY KEY,
+          recipient VARCHAR(255) NOT NULL,
+          status VARCHAR(50) NOT NULL,
+          status_code SMALLINT NOT NULL,
+          status_message TEXT NOT NULL,
+          sent_at TIMESTAMPTZ NOT NULL,
+          event_at TIMESTAMPTZ NOT NULL,
+          source_row INTEGER NOT NULL
+        ) ON COMMIT DROP
+      `);
 
-    return 'updated';
+      for (let offset = 0; offset < updates.length; offset += EMAIL_STATUS_STAGE_CHUNK_SIZE) {
+        const chunk = updates.slice(offset, offset + EMAIL_STATUS_STAGE_CHUNK_SIZE);
+        await trx(EMAIL_STATUS_STAGE_TABLE).insert(chunk.map((item) => ({
+          message_id: item.messageId,
+          recipient: item.recipient,
+          status: item.status,
+          status_code: item.statusCode,
+          status_message: item.statusMessage,
+          sent_at: item.sentAt,
+          event_at: item.eventAt,
+          source_row: item.sourceRow,
+        })));
+      }
+
+      const rows = await trx({ email: 'email_logs' })
+        .join({ stage: EMAIL_STATUS_STAGE_TABLE }, 'email.mailgrid_message_id', 'stage.message_id')
+        .select('email.*')
+        .orderBy('email.id')
+        .forUpdate('email');
+      const byMessageId = new Map(
+        rows.map((row) => [String(row.mailgrid_message_id), row as unknown as EmailLogRow]),
+      );
+      const applicable: ImportedEmailStatusUpdate[] = [];
+      let unchanged = 0;
+      let ignoredStale = 0;
+      let notFound = 0;
+      let otherCampaign = 0;
+      let recipientMismatch = 0;
+
+      for (const item of updates) {
+        const row = byMessageId.get(item.messageId);
+        if (!row) {
+          notFound++;
+          continue;
+        }
+        if (row.job_id !== jobId) {
+          otherCampaign++;
+          continue;
+        }
+        if (row.recipient_email.toLowerCase() !== item.recipient.toLowerCase()) {
+          recipientMismatch++;
+          continue;
+        }
+
+        const currentEventAt = row.mailgrid_event_at ? new Date(row.mailgrid_event_at) : null;
+        if (!shouldApplyMailgridWebhookEvent(currentEventAt, item.eventAt)) {
+          ignoredStale++;
+          continue;
+        }
+        if (importedStatusIsUnchanged(row, item)) {
+          unchanged++;
+          continue;
+        }
+        applicable.push(item);
+      }
+
+      if (applicable.length > 0) {
+        await trx.raw(`
+          CREATE TEMP TABLE ${EMAIL_STATUS_APPLY_TABLE} (
+            message_id VARCHAR(255) PRIMARY KEY
+          ) ON COMMIT DROP
+        `);
+        for (let offset = 0; offset < applicable.length; offset += EMAIL_STATUS_STAGE_CHUNK_SIZE) {
+          await trx(EMAIL_STATUS_APPLY_TABLE).insert(
+            applicable.slice(offset, offset + EMAIL_STATUS_STAGE_CHUNK_SIZE)
+              .map((item) => ({ message_id: item.messageId })),
+          );
+        }
+
+        const result = await trx.raw(`
+          UPDATE email_logs AS email
+          SET
+            status = stage.status,
+            delivered_at = CASE
+              WHEN stage.status = 'delivered' THEN stage.event_at
+              ELSE email.delivered_at
+            END,
+            bounces_at = CASE
+              WHEN stage.status IN ('soft_bounce', 'hard_bounce') THEN stage.event_at
+              ELSE email.bounces_at
+            END,
+            mailgrid_sent_at = stage.sent_at,
+            mailgrid_event_at = stage.event_at,
+            mailgrid_status_code = stage.status_code,
+            mailgrid_status_message = stage.status_message,
+            updated_at = CURRENT_TIMESTAMP
+          FROM ${EMAIL_STATUS_STAGE_TABLE} AS stage
+          INNER JOIN ${EMAIL_STATUS_APPLY_TABLE} AS applicable
+            ON applicable.message_id = stage.message_id
+          WHERE email.job_id = ?
+            AND email.mailgrid_message_id = stage.message_id
+            AND LOWER(email.recipient_email) = LOWER(stage.recipient)
+        `, [jobId]);
+        if (result.rowCount !== applicable.length) {
+          throw new Error('Imported status update count mismatch');
+        }
+      }
+
+      return {
+        updated: applicable.length,
+        unchanged,
+        ignoredStale,
+        notFound,
+        otherCampaign,
+        recipientMismatch,
+      };
+    });
   }
 
   /**

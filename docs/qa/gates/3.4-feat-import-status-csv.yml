@@ -1,0 +1,35 @@
+schema: 1
+story: "3.4"
+story_title: "Importação de status de envio por CSV"
+gate: PASS
+status_reason: "Todos os critérios de aceitação foram implementados e validados. Os gates de lint, build, testes unitários, integração PostgreSQL e E2E passaram; não foram encontrados problemas bloqueadores na revisão manual."
+reviewer: "Quinn (Test Architect)"
+updated: "2026-08-21T00:00:00-03:00"
+quality_score: 100
+top_issues: []
+waiver:
+  active: false
+evidence:
+  tests_reviewed: 197
+  risks_identified: 0
+  trace:
+    ac_covered: [1, 2, 3, 4, 5, 6, 7]
+    ac_gaps: []
+nfr_validation:
+  security:
+    status: PASS
+    notes: "Rota protegida por autenticação e trusted origin, com rate limit, limite de upload, validação de extensão e atualização sem criação de registros."
+  performance:
+    status: PASS
+    notes: "Parser em streaming, limite de 50 MB/100.000 linhas, chunks de 1.000 e UPDATE set-based validados com 3.907 linhas no PostgreSQL real."
+  reliability:
+    status: PASS
+    notes: "Transação com rollback integral, idempotência, locks e proteção contra webhook antigo ou concorrente."
+  maintainability:
+    status: PASS
+    notes: "Responsabilidades separadas por serviço, repositório, controller, rota e componente; resumo e testes documentam o comportamento."
+recommendations:
+  immediate: []
+  future:
+    - action: "Instalar CodeRabbit CLI no ambiente de QA e executar a verificação automatizada complementar."
+      refs: []

@@ -4,6 +4,7 @@ import { getEmailQueue, getQueueStats, EmailJobData } from '../queue/emailQueue'
 import { getJobRepository, getEmailLogRepository, isDatabaseReady } from '../services/databaseService';
 import { computeJobStatus, shouldSyncStatus } from '../services/jobStatusService';
 import { EmailLogStatus } from '../models/EmailLog';
+import { importEmailStatusCsv, CsvStatusImportError } from '../services/emailStatusImportService';
 
 const STATUS_PAGE_SIZE = 100;
 
@@ -268,6 +269,58 @@ export const getJobStatus = async (
 };
 
 /**
+ * POST /api/status/:jobId/import
+ * Import delivery statuses from a Mailgrid CSV export.
+ */
+export const importJobStatuses = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  let filePath: string | undefined;
+  try {
+    const { jobId } = req.params;
+    filePath = req.file?.path;
+
+    if (!filePath) {
+      res.status(400).json({ success: false, error: 'Nenhum arquivo CSV foi enviado' });
+      return;
+    }
+
+    if (!isDatabaseReady()) {
+      res.status(503).json({ success: false, error: 'Banco de dados indisponível' });
+      return;
+    }
+
+    const jobRepository = getJobRepository();
+    const job = await jobRepository.findById(jobId) || await jobRepository.findByCampaignId(jobId);
+    if (!job) {
+      res.status(404).json({ success: false, error: 'Campanha não encontrada' });
+      return;
+    }
+
+    const summary = await importEmailStatusCsv(filePath, job.id, getEmailLogRepository());
+    res.status(200).json({
+      success: true,
+      jobId: job.id,
+      campaignId: job.campaign_id,
+      summary,
+    });
+  } catch (error) {
+    if (error instanceof CsvStatusImportError) {
+      res.status(400).json({ success: false, error: error.message });
+      return;
+    }
+    next(error);
+  } finally {
+    if (filePath) {
+      const fs = await import('node:fs/promises');
+      await fs.unlink(filePath).catch(() => undefined);
+    }
+  }
+};
+
+/**
  * GET /api/status
  * Get overall queue status
  */
@@ -311,5 +364,6 @@ export const getQueueStatus = async (
 
 export default {
   getJobStatus,
+  importJobStatuses,
   getQueueStatus,
 };

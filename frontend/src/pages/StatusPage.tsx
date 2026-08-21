@@ -5,6 +5,7 @@ import { useJobStatus } from '../hooks/useJobStatus';
 import type { JobStatus } from '../services/api';
 import EmailStatusTable from '../components/EmailStatusTable/EmailStatusTable';
 import { AccountMenu } from '../components/Auth/AccountMenu';
+import StatusImport from '../components/StatusImport/StatusImport';
 
 export function StatusPage() {
   const { jobId } = useParams<{ jobId: string }>();
@@ -107,6 +108,8 @@ export function StatusPage() {
           pagination={status?.pagination}
           onPageChange={setPage}
         />
+
+        <StatusImport jobId={jobId} onImported={refresh} />
 
         {/* Completion message */}
         {status && (status.status === 'completed' || status.status === 'failed') && (

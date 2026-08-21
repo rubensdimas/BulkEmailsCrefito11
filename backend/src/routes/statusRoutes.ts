@@ -3,9 +3,21 @@
  * GET /api/status/:jobId - Get job status and counters
  */
 import { Router } from 'express';
-import { getJobStatus, getQueueStatus } from '../controllers/statusController';
+import { getJobStatus, getQueueStatus, importJobStatuses } from '../controllers/statusController';
+import { uploadCsv, handleCsvUploadError } from '../middlewares/uploadMiddleware';
+import { uploadLimiter } from '../middlewares/security';
 
 const router = Router();
+
+router.post('/:jobId/import', uploadLimiter, (req, res, next) => {
+  uploadCsv(req, res, (err) => {
+    if (err) {
+      handleCsvUploadError(err, req, res, next);
+      return;
+    }
+    next();
+  });
+}, importJobStatuses);
 
 /**
  * GET /api/status/:jobId

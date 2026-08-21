@@ -39,6 +39,16 @@ const fileFilter = (_req: Request, file: Express.Multer.File, cb: FileFilterCall
   }
 };
 
+const csvFileFilter = (_req: Request, file: Express.Multer.File, cb: FileFilterCallback) => {
+  const ext = path.extname(file.originalname).toLowerCase();
+
+  if (ext === '.csv') {
+    cb(null, true);
+  } else {
+    cb(new Error('Somente arquivos com extensão .csv são permitidos'));
+  }
+};
+
 // Create multer upload instance
 export const upload = multer({
   storage,
@@ -50,6 +60,14 @@ export const upload = multer({
 
 // Export middleware for single file upload
 export const uploadXlsx = upload.single('file');
+
+export const uploadCsv = multer({
+  storage,
+  fileFilter: csvFileFilter,
+  limits: {
+    fileSize: 50 * 1024 * 1024,
+  },
+}).single('file');
 
 export const hasValidSpreadsheetSignature = (filePath: string): boolean => {
   const descriptor = fs.openSync(filePath, 'r');
@@ -84,4 +102,14 @@ export const handleUploadError = (err: Error, _req: Request, res: Response, next
     });
   }
   next();
+};
+
+export const handleCsvUploadError = (err: Error, _req: Request, res: Response, next: NextFunction) => {
+  if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
+    return res.status(400).json({
+      success: false,
+      error: 'Arquivo CSV muito grande. O limite máximo é 50 MB.',
+    });
+  }
+  return handleUploadError(err, _req, res, next);
 };

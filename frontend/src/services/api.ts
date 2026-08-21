@@ -127,6 +127,21 @@ export interface StatusPagination {
   totalPages: number;
 }
 
+export interface EmailStatusImportSummary {
+  totalRows: number;
+  validRows: number;
+  updated: number;
+  unchanged: number;
+  ignoredStale: number;
+  notFound: number;
+  otherCampaign: number;
+  recipientMismatch: number;
+  duplicateRows: number;
+  invalidRows: number;
+  invalidRowNumbers: number[];
+  invalidRowNumbersTruncated: boolean;
+}
+
 export interface Job {
   id: string;
   campaign_id: string;
@@ -222,6 +237,27 @@ export const sendEmails = async (data: SendEmailRequest): Promise<SendEmailRespo
 export const getJobStatus = async (jobId: string, page: number = 1): Promise<JobStatus> => {
   const response = await api.get<JobStatus>(`/status/${jobId}`, { params: { page } });
   return response.data;
+};
+
+export const importJobStatuses = async (
+  jobId: string,
+  file: File,
+): Promise<{ success: boolean; jobId: string; campaignId: string; summary: EmailStatusImportSummary }> => {
+  const formData = new FormData();
+  formData.append('file', file);
+  try {
+    const response = await api.post(`/status/${jobId}/import`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 120000,
+    });
+    return response.data;
+  } catch (error) {
+    if (axios.isAxiosError(error)) {
+      const payload = error.response?.data as { error?: string; message?: string } | undefined;
+      throw new Error(payload?.error || payload?.message || 'Não foi possível importar o CSV');
+    }
+    throw error;
+  }
 };
 
 // Get jobs list with pagination and filters

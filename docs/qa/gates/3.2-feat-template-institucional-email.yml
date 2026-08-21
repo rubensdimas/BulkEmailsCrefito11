@@ -1,21 +1,17 @@
 schema: 1
 story: "3.2"
 story_title: "Template institucional de header e rodape para e-mails"
-gate: CONCERNS
-status_reason: "A imagem institucional por URL absoluta foi restaurada e validada no container/Chromium; falta somente a validação em uma caixa postal real."
+gate: PASS
+status_reason: "A imagem institucional por URL absoluta foi restaurada, validada no container/Chromium e confirmada em uma caixa postal real por teste manual do administrador."
 reviewer: "Quinn (Test Architect)"
-updated: "2026-08-06T20:30:00-03:00"
-quality_score: 90
-top_issues:
-  - id: "3.2-MANUAL-VALIDATION"
-    severity: medium
-    finding: "Não há evidência de renderização em uma caixa postal real usando o provedor atual."
-    suggested_owner: qa
+updated: "2026-08-21T00:00:00-03:00"
+quality_score: 95
+top_issues: []
 waiver:
   active: false
 evidence:
   tests_reviewed: 118
-  risks_identified: 1
+  risks_identified: 0
   trace:
     ac_covered: [1, 2, 3, 4]
     ac_gaps: []
@@ -27,14 +23,11 @@ nfr_validation:
     status: PASS
     notes: "Nenhuma regressão relevante observada."
   reliability:
-    status: CONCERNS
-    notes: "Endpoint, integridade do PNG e renderização em Chromium foram validados; falta evidência em cliente de e-mail real."
+    status: PASS
+    notes: "Endpoint, integridade do PNG, renderização em Chromium e renderização em caixa postal real foram validados."
   maintainability:
     status: PASS
     notes: "Renderer, configuração, endpoint e testes descrevem a mesma estratégia de URL absoluta pública."
 recommendations:
-  immediate:
-    - action: "Executar um envio real e validar a renderização em cliente de e-mail."
-      refs:
-        - "docs/stories/3.2.feat-template-institucional-email.story.md"
+  immediate: []
   future: []

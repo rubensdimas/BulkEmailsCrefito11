@@ -57,7 +57,7 @@ export function useJobStatus(options: UseJobStatusOptions): UseJobStatusReturn {
     }
   }, []);
 
-  const fetchStatus = useCallback(async () => {
+  const fetchStatus = useCallback(async (throwOnError = false) => {
     if (!jobId || !enabled) return;
     if (isFetchingRef.current) return;
 
@@ -85,6 +85,7 @@ export function useJobStatus(options: UseJobStatusOptions): UseJobStatusReturn {
         setError(error);
         onErrorRef.current?.(error);
       }
+      if (throwOnError) throw error;
     } finally {
       isFetchingRef.current = false;
 
@@ -144,7 +145,7 @@ export function useJobStatus(options: UseJobStatusOptions): UseJobStatusReturn {
     isPolling,
     startPolling,
     stopPolling,
-    refresh: fetchStatus,
+    refresh: () => fetchStatus(true),
   };
 }
 

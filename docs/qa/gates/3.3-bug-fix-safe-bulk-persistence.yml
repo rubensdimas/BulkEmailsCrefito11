@@ -1,0 +1,36 @@
+schema: 1
+story: "3.3"
+story_title: "Persistencia segura de campanhas em lote"
+gate: PASS
+status_reason: "Persistencia transacional em chunks, enfileiramento idempotente, reconciliacao e deploy recuperavel foram implementados e validados sem mudanca de schema."
+reviewer: "Dara (Database Architect & Operations Engineer)"
+updated: "2026-08-21T00:00:00-03:00"
+quality_score: 95
+top_issues: []
+waiver:
+  active: false
+evidence:
+  tests_reviewed: 169
+  risks_identified: 0
+  trace:
+    ac_covered: [1, 2, 3, 4, 5, 6, 7]
+    ac_gaps: []
+nfr_validation:
+  security:
+    status: PASS
+    notes: "Secrets Docker *_FILE sao lidos pela aplicacao, migrations, Redis e Bull; nao ha secrets hardcoded novos."
+  performance:
+    status: PASS
+    notes: "Insercoes e consultas por hashes usam chunks para evitar limites de bind e consultas gigantes."
+  reliability:
+    status: PASS
+    notes: "Banco e persistido antes do Redis; falhas parciais retornam campanha recuperavel e reconciliavel."
+  maintainability:
+    status: PASS
+    notes: "Logica foi isolada em repositorio, fila, servico de reconciliacao, CLI e scripts de producao."
+recommendations:
+  immediate: []
+  future:
+    - action: "Executar o runbook em producao mantendo worker=0 ate o dry-run de reconciliacao ficar sem bloqueios."
+      refs:
+        - "docs/production.md"

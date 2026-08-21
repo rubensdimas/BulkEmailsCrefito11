@@ -91,6 +91,21 @@ export interface MailgridWebhookUpdate {
   payload: Record<string, unknown>;
 }
 
+/**
+ * Delivery status recovered from an exported Mailgrid CSV report.
+ * It intentionally contains only fields that already exist on email_logs.
+ */
+export interface ImportedEmailStatusUpdate {
+  messageId: string;
+  recipient: string;
+  status: Extract<EmailLogStatus, 'delivered' | 'soft_bounce' | 'hard_bounce'>;
+  statusCode: 0 | 1 | 2;
+  statusMessage: string;
+  sentAt: Date | null;
+  eventAt: Date | null;
+  sourceRow: number;
+}
+
 export const shouldApplyMailgridWebhookEvent = (
   currentEventAt: Date | null,
   incomingEventAt: Date | null
