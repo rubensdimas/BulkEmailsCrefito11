@@ -4,6 +4,7 @@ interface EmailStatusTableProps {
   emails: EmailDeliveryItem[];
   pagination?: StatusPagination;
   onPageChange: (page: number) => void;
+  hasActiveFilters?: boolean;
 }
 
 const STATUS_STYLES: Record<EmailDeliveryStatus, { label: string; className: string }> = {
@@ -17,7 +18,12 @@ const STATUS_STYLES: Record<EmailDeliveryStatus, { label: string; className: str
   bounced: { label: 'Bounce', className: 'bg-red-100 text-red-800' },
 };
 
-export function EmailStatusTable({ emails, pagination, onPageChange }: EmailStatusTableProps) {
+export function EmailStatusTable({
+  emails,
+  pagination,
+  onPageChange,
+  hasActiveFilters = false,
+}: EmailStatusTableProps) {
   const currentPage = pagination?.page || 1;
   const totalPages = pagination?.totalPages || 0;
 
@@ -26,7 +32,7 @@ export function EmailStatusTable({ emails, pagination, onPageChange }: EmailStat
       <div className="px-6 py-4 border-b border-gray-100">
         <h2 className="text-lg font-semibold text-gray-900">Destinatários</h2>
         <p className="text-sm text-gray-500 mt-1">
-          {pagination?.total || 0} endereços — 100 itens por página
+          {pagination?.total || 0} {hasActiveFilters ? 'endereços encontrados' : 'endereços'} — 100 itens por página
         </p>
       </div>
 
@@ -62,7 +68,9 @@ export function EmailStatusTable({ emails, pagination, onPageChange }: EmailStat
             {emails.length === 0 && (
               <tr>
                 <td colSpan={3} className="px-6 py-10 text-center text-sm text-gray-500">
-                  Nenhum destinatário nesta página.
+                  {hasActiveFilters
+                    ? 'Nenhum destinatário corresponde aos filtros.'
+                    : 'Nenhum destinatário nesta página.'}
                 </td>
               </tr>
             )}

@@ -239,4 +239,50 @@ describeDatabase('EmailLogRepository PostgreSQL integration', () => {
     expect(persisted).toMatchObject({ status: 'delivered', mailgrid_status_code: 1 });
     expect(new Date(persisted.mailgrid_event_at).toISOString()).toBe('2026-08-21T20:00:00.000Z');
   });
+
+  it('filters recipients and status before counting and paginating', async () => {
+    const job = await createJob(4);
+    const repository = new EmailLogRepository(database);
+    const recipients = [
+      'filter-one@example.com',
+      'filter-two@example.com',
+      'filter-three@example.com',
+      'filter-four@example.com',
+    ];
+    await repository.createBatch(recipients.map((recipient) => ({
+      job_id: job.id,
+      recipient_email: recipient,
+      subject: job.subject,
+      from_address: job.from_address,
+      unique_hash: generateUniqueHash(job.campaign_id, recipient, job.subject, job.from_address),
+    })));
+    await database('email_logs')
+      .where({ job_id: job.id, recipient_email: recipients[0] })
+      .update({ status: 'delivered' });
+    await database('email_logs')
+      .where({ job_id: job.id, recipient_email: recipients[1] })
+      .update({ status: 'delivered' });
+    await database('email_logs')
+      .where({ job_id: job.id, recipient_email: recipients[2] })
+      .update({ status: 'hard_bounce' });
+
+    const deliveredPage = await repository.findPageByJobId(job.id, 1, 1, {
+      status: 'delivered',
+    });
+    expect(deliveredPage.total).toBe(2);
+    expect(deliveredPage.data).toHaveLength(1);
+    expect(deliveredPage.data[0].status).toBe('delivered');
+
+    const combined = await repository.findPageByJobId(job.id, 1, 100, {
+      recipient: recipients[2],
+      status: 'hard_bounce',
+    });
+    expect(combined.total).toBe(1);
+    expect(combined.data[0].recipient_email).toBe(recipients[2]);
+
+    await expect(repository.findPageByJobId(job.id, 1, 100, {
+      recipient: recipients[2],
+      status: 'delivered',
+    })).resolves.toMatchObject({ total: 0, data: [] });
+  });
 });

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { getJobStatus, JobStatus } from '../services/api';
+import { getJobStatus, JobStatus, JobStatusFilters } from '../services/api';
 
 type VoidFn = () => void;
 
@@ -10,6 +10,7 @@ interface UseJobStatusOptions {
   onError?: (error: Error) => void;
   enabled?: boolean;
   page?: number;
+  filters?: JobStatusFilters;
 }
 
 interface UseJobStatusReturn {
@@ -30,7 +31,10 @@ export function useJobStatus(options: UseJobStatusOptions): UseJobStatusReturn {
     onError,
     enabled = true,
     page = 1,
+    filters,
   } = options;
+  const recipientFilter = filters?.recipient;
+  const statusFilter = filters?.status;
 
   const [status, setStatus] = useState<JobStatus | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -39,8 +43,12 @@ export function useJobStatus(options: UseJobStatusOptions): UseJobStatusReturn {
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isMountedRef = useRef(true);
-  const isFetchingRef = useRef(false);
+  const requestSequenceRef = useRef(0);
+  const inFlightQueryKeysRef = useRef(new Set<string>());
   const completionNotifiedRef = useRef(false);
+  const queryKey = JSON.stringify([jobId, enabled, page, recipientFilter, statusFilter]);
+  const latestQueryKeyRef = useRef(queryKey);
+  latestQueryKeyRef.current = queryKey;
 
   // Stable refs for callbacks to avoid dependency churn
   const onCompleteRef = useRef(onComplete);
@@ -59,16 +67,27 @@ export function useJobStatus(options: UseJobStatusOptions): UseJobStatusReturn {
 
   const fetchStatus = useCallback(async (throwOnError = false) => {
     if (!jobId || !enabled) return;
-    if (isFetchingRef.current) return;
+    if (inFlightQueryKeysRef.current.has(queryKey)) return;
 
-    isFetchingRef.current = true;
+    const requestSequence = ++requestSequenceRef.current;
+    const requestQueryKey = queryKey;
+    const isLatestRequest = () => (
+      isMountedRef.current
+      && requestSequence === requestSequenceRef.current
+      && requestQueryKey === latestQueryKeyRef.current
+    );
+
+    inFlightQueryKeysRef.current.add(requestQueryKey);
     setIsLoading(true);
     setError(null);
 
     try {
-      const result = await getJobStatus(jobId, page);
+      const result = await getJobStatus(jobId, page, {
+        ...(recipientFilter ? { recipient: recipientFilter } : {}),
+        ...(statusFilter ? { status: statusFilter } : {}),
+      });
 
-      if (isMountedRef.current) {
+      if (isLatestRequest()) {
         setStatus(result);
 
         if (result.status === 'completed' || result.status === 'failed') {
@@ -81,19 +100,19 @@ export function useJobStatus(options: UseJobStatusOptions): UseJobStatusReturn {
     } catch (err) {
       const error = err instanceof Error ? err : new Error('Erro ao buscar status');
 
-      if (isMountedRef.current) {
+      if (isLatestRequest()) {
         setError(error);
         onErrorRef.current?.(error);
       }
-      if (throwOnError) throw error;
+      if (throwOnError && isLatestRequest()) throw error;
     } finally {
-      isFetchingRef.current = false;
+      inFlightQueryKeysRef.current.delete(requestQueryKey);
 
-      if (isMountedRef.current) {
+      if (isLatestRequest()) {
         setIsLoading(false);
       }
     }
-  }, [jobId, enabled, page]);
+  }, [jobId, enabled, page, recipientFilter, statusFilter, queryKey]);
 
   const startPolling = useCallback(() => {
     if (!jobId || !enabled || intervalRef.current) return;
@@ -123,7 +142,7 @@ export function useJobStatus(options: UseJobStatusOptions): UseJobStatusReturn {
     return () => {
       stopPollingRef.current();
     };
-  }, [jobId, enabled, page]);
+  }, [jobId, enabled, page, recipientFilter, statusFilter]);
 
   useEffect(() => {
     completionNotifiedRef.current = false;

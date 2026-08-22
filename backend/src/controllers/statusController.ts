@@ -5,8 +5,16 @@ import { getJobRepository, getEmailLogRepository, isDatabaseReady } from '../ser
 import { computeJobStatus, shouldSyncStatus } from '../services/jobStatusService';
 import { EmailLogStatus } from '../models/EmailLog';
 import { importEmailStatusCsv, CsvStatusImportError } from '../services/emailStatusImportService';
+import { isValidEmail } from '../services/emailValidator';
 
 const STATUS_PAGE_SIZE = 100;
+const FILTERABLE_DELIVERY_STATUSES = [
+  'pending',
+  'soft_bounce',
+  'hard_bounce',
+  'delivered',
+] as const;
+type FilterableDeliveryStatus = typeof FILTERABLE_DELIVERY_STATUSES[number];
 
 export interface EmailDeliveryItem {
   messageId: string | null;
@@ -67,6 +75,8 @@ export const getJobStatus = async (
   try {
     const { jobId } = req.params;
     const page = req.query.page === undefined ? 1 : Number(req.query.page);
+    const recipientQuery = req.query.recipient;
+    const statusQuery = req.query.status;
 
     if (!jobId) {
       res.status(400).json({
@@ -83,6 +93,36 @@ export const getJobStatus = async (
       });
       return;
     }
+
+    if (
+      recipientQuery !== undefined
+      && (typeof recipientQuery !== 'string' || !isValidEmail(recipientQuery.trim()))
+    ) {
+      res.status(400).json({
+        success: false,
+        error: 'Recipient must be a valid email address',
+      });
+      return;
+    }
+
+    if (
+      statusQuery !== undefined
+      && (
+        typeof statusQuery !== 'string'
+        || !FILTERABLE_DELIVERY_STATUSES.includes(statusQuery as FilterableDeliveryStatus)
+      )
+    ) {
+      res.status(400).json({
+        success: false,
+        error: `Status must be one of: ${FILTERABLE_DELIVERY_STATUSES.join(', ')}`,
+      });
+      return;
+    }
+
+    const deliveryFilters = {
+      ...(typeof recipientQuery === 'string' ? { recipient: recipientQuery.trim().toLowerCase() } : {}),
+      ...(typeof statusQuery === 'string' ? { status: statusQuery as FilterableDeliveryStatus } : {}),
+    };
 
     // Check database availability
     const dbReady = isDatabaseReady();
@@ -101,7 +141,7 @@ export const getJobStatus = async (
         if (job) {
           const [stats, emailPage] = await Promise.all([
             emailLogRepo.getStatsByJobId(job.id),
-            emailLogRepo.findPageByJobId(job.id, page, STATUS_PAGE_SIZE),
+            emailLogRepo.findPageByJobId(job.id, page, STATUS_PAGE_SIZE, deliveryFilters),
           ]);
           const computed = computeJobStatus(job, stats);
 

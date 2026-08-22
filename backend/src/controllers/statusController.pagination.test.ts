@@ -69,7 +69,7 @@ describe('getJobStatus pagination', () => {
     const res = { status, json } as unknown as Response;
     await getJobStatus(req, res, next);
 
-    expect(findPageByJobId).toHaveBeenCalledWith('job-1', 2, 100);
+    expect(findPageByJobId).toHaveBeenCalledWith('job-1', 2, 100, {});
     expect(json).toHaveBeenCalledWith(expect.objectContaining({
       completed: 101,
       emails: [expect.objectContaining({ messageId: 'msg-1', status: 'delivered' })],
@@ -82,5 +82,46 @@ describe('getJobStatus pagination', () => {
     const res = { status, json } as unknown as Response;
     await getJobStatus(req, res, next);
     expect(status).toHaveBeenCalledWith(400);
+  });
+
+  it('normalizes and combines recipient and status filters', async () => {
+    findPageByJobId.mockResolvedValue({ total: 0, data: [] });
+    const req = {
+      params: { jobId: 'job-1' },
+      query: {
+        page: '1',
+        recipient: ' Recipient@Example.COM ',
+        status: 'hard_bounce',
+      },
+    } as unknown as Request;
+    const res = { status, json } as unknown as Response;
+
+    await getJobStatus(req, res, next);
+
+    expect(findPageByJobId).toHaveBeenCalledWith('job-1', 1, 100, {
+      recipient: 'recipient@example.com',
+      status: 'hard_bounce',
+    });
+    expect(json).toHaveBeenCalledWith(expect.objectContaining({
+      total: 101,
+      pagination: { page: 1, pageSize: 100, total: 0, totalPages: 0 },
+    }));
+  });
+
+  it.each([
+    [{ recipient: 'not-an-email' }, 'Recipient must be a valid email address'],
+    [{ status: 'sent' }, 'Status must be one of'],
+    [{ status: ['pending'] }, 'Status must be one of'],
+  ])('rejects invalid delivery filters %#', async (query, expectedError) => {
+    const req = { params: { jobId: 'job-1' }, query } as unknown as Request;
+    const res = { status, json } as unknown as Response;
+
+    await getJobStatus(req, res, next);
+
+    expect(status).toHaveBeenCalledWith(400);
+    expect(json).toHaveBeenCalledWith(expect.objectContaining({
+      error: expect.stringContaining(expectedError),
+    }));
+    expect(findPageByJobId).not.toHaveBeenCalled();
   });
 });

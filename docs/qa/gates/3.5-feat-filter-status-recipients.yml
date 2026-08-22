@@ -1,0 +1,38 @@
+schema: 1
+story: "3.5"
+story_title: "Filtro de destinatários na página de status"
+gate: PASS
+status_reason: "Os três findings do review anterior foram encerrados: a regressão backend está verde, respostas obsoletas são invalidadas e o E2E comprova dois ciclos consecutivos de polling filtrado. Todos os oito critérios possuem evidência automatizada."
+reviewer: "Quinn (Test Architect)"
+updated: "2026-08-21T22:30:22-03:00"
+quality_score: 100
+top_issues: []
+waiver:
+  active: false
+evidence:
+  tests_reviewed: 212
+  risks_identified: 0
+  trace:
+    ac_covered: [1, 2, 3, 4, 5, 6, 7, 8]
+    ac_gaps: []
+nfr_validation:
+  security:
+    status: PASS
+    notes: "E-mail e status são validados antes do acesso ao repositório, os valores permanecem parametrizados pelo Knex e nenhuma nova superfície de escrita ou segredo foi adicionada."
+  performance:
+    status: PASS
+    notes: "Filtros e contagem são executados no servidor antes de LIMIT/OFFSET; o status possui índice composto por job e ordenação. A integração PostgreSQL confirmou consulta e contagem equivalentes."
+  reliability:
+    status: PASS
+    notes: "O hook combina chave da consulta, sequência e bloqueio por consulta idêntica; o E2E prova que uma resposta antiga atrasada não sobrescreve o filtro atual e que o polling preserva os parâmetros."
+  maintainability:
+    status: PASS
+    notes: "Controller, repositório, tipos, hook, componente, migration e testes permanecem separados e coerentes com os padrões existentes."
+recommendations:
+  immediate: []
+  future:
+    - action: "Medir a consulta de status com volume próximo de 100 mil registros e registrar o plano de execução."
+      refs:
+        - "backend/src/repositories/emailLogRepository.ts"
+    - action: "Instalar a CLI do CodeRabbit no ambiente de QA para restaurar a revisão automatizada complementar."
+      refs: []

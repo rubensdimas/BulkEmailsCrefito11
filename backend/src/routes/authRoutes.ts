@@ -93,6 +93,7 @@ router.get('/oidc/callback', async (request: Request, response: Response) => {
     if (error instanceof OidcError) {
       console.error('[OIDC] Callback failed:', {
         code: error.code,
+        message: error.message,
         providerStatus: error.providerStatus,
         providerError: error.providerError,
       });

@@ -39,6 +39,11 @@ export interface EmailStatusImportApplyResult {
   recipientMismatch: number;
 }
 
+export interface EmailLogPageFilter {
+  recipient?: string;
+  status?: Extract<EmailLogStatus, 'pending' | 'delivered' | 'soft_bounce' | 'hard_bounce'>;
+}
+
 const timestampValue = (value: Date | string | null): number | null => (
   value ? new Date(value).getTime() : null
 );
@@ -253,19 +258,32 @@ export class EmailLogRepository {
   async findPageByJobId(
     jobId: string,
     page: number,
-    pageSize: number
+    pageSize: number,
+    filter: EmailLogPageFilter = {},
   ): Promise<{ data: EmailLog[]; total: number }> {
     const offset = (page - 1) * pageSize;
+    const rowsQuery = this.db('email_logs')
+      .where('job_id', jobId);
+    const countQuery = this.db('email_logs')
+      .where('job_id', jobId);
+
+    if (filter.recipient) {
+      rowsQuery.where('recipient_email', filter.recipient);
+      countQuery.where('recipient_email', filter.recipient);
+    }
+    if (filter.status) {
+      rowsQuery.where('status', filter.status);
+      countQuery.where('status', filter.status);
+    }
+
     const [rows, countRow] = await Promise.all([
-      this.db('email_logs')
-        .where('job_id', jobId)
+      rowsQuery
         .select('*')
         .orderBy('created_at', 'desc')
         .orderBy('id', 'desc')
         .limit(pageSize)
         .offset(offset),
-      this.db('email_logs')
-        .where('job_id', jobId)
+      countQuery
         .count<{ count: string }[]>({ count: '*' })
         .first(),
     ]);

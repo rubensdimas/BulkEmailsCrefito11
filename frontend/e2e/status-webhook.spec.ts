@@ -45,6 +45,85 @@ test('shows Mailgrid delivery details and paginates 100 recipients per page', as
   await expect(page.getByText('Página 2 de 2')).toBeVisible();
 });
 
+test('reorders cards and filters recipients on the server before pagination', async ({ page }) => {
+  const requestedUrls: URL[] = [];
+  let delayedPageResolved = false;
+  await page.route('**/api/status/job-filter*', async (route) => {
+    const url = new URL(route.request().url());
+    requestedUrls.push(url);
+    const isFiltered = url.searchParams.has('recipient') || url.searchParams.has('status');
+    const requestedPage = Number(url.searchParams.get('page') || '1');
+
+    if (!isFiltered && requestedPage === 2) {
+      await new Promise((resolve) => setTimeout(resolve, 750));
+      delayedPageResolved = true;
+    }
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        success: true,
+        jobId: 'job-filter',
+        status: 'completed',
+        total: 101,
+        completed: 100,
+        failed: 1,
+        processing: 0,
+        waiting: 0,
+        progress: 100,
+        timestamp: new Date().toISOString(),
+        emails: isFiltered ? [] : [{
+          messageId: requestedPage === 2 ? 'msg-stale' : 'msg-filter',
+          recipient: requestedPage === 2 ? 'stale@example.com' : 'first@example.com',
+          status: 'delivered',
+          statusMessage: 'Entregue',
+          sentAt: null,
+          eventAt: null,
+        }],
+        pagination: isFiltered
+          ? { page: 1, pageSize: 100, total: 0, totalPages: 0 }
+          : { page: requestedPage, pageSize: 100, total: 101, totalPages: 2 },
+      }),
+    });
+  });
+
+  await page.goto('/status/job-filter');
+  await expect(page.locator('main h2')).toHaveText([
+    'Status do Envio',
+    'Importar status do Mailgrid',
+    'Filtros de destinatários',
+    'Destinatários',
+  ]);
+
+  await page.getByRole('button', { name: 'Próxima' }).click();
+  await expect.poll(() => requestedUrls.some((url) => url.searchParams.get('page') === '2')).toBe(true);
+
+  await page.getByLabel('Endereço de e-mail').fill(' Target@Example.COM ');
+  await page.getByLabel('Status').selectOption('hard_bounce');
+  await page.getByRole('button', { name: 'Aplicar filtros' }).click();
+
+  await expect.poll(() => requestedUrls.some((url) => (
+    url.searchParams.get('page') === '1'
+    && url.searchParams.get('recipient') === 'target@example.com'
+    && url.searchParams.get('status') === 'hard_bounce'
+  ))).toBe(true);
+  await expect.poll(() => requestedUrls.filter((url) => (
+    url.searchParams.get('page') === '1'
+    && url.searchParams.get('recipient') === 'target@example.com'
+    && url.searchParams.get('status') === 'hard_bounce'
+  )).length, { timeout: 5000 }).toBeGreaterThanOrEqual(2);
+  await expect.poll(() => delayedPageResolved).toBe(true);
+  await expect(page.getByText('stale@example.com')).not.toBeVisible();
+  await expect(page.getByText('Nenhum destinatário corresponde aos filtros.')).toBeVisible();
+  await expect(page.getByText('0 endereços encontrados — 100 itens por página')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Limpar' }).click();
+  await expect(page.getByText('first@example.com')).toBeVisible();
+  await expect(page.getByLabel('Endereço de e-mail')).toHaveValue('');
+  await expect(page.getByLabel('Status')).toHaveValue('');
+});
+
 test('imports existing delivery statuses from a CSV and refreshes the page', async ({ page }) => {
   await page.route('**/api/status/job-import/import', async (route) => {
     expect(route.request().method()).toBe('POST');

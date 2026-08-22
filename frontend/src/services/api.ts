@@ -111,6 +111,16 @@ export type EmailDeliveryStatus =
   | 'failed'
   | 'bounced';
 
+export type EmailStatusFilterValue = Extract<
+  EmailDeliveryStatus,
+  'pending' | 'delivered' | 'soft_bounce' | 'hard_bounce'
+>;
+
+export interface JobStatusFilters {
+  recipient?: string;
+  status?: EmailStatusFilterValue;
+}
+
 export interface EmailDeliveryItem {
   messageId: string | null;
   recipient: string;
@@ -234,8 +244,14 @@ export const sendEmails = async (data: SendEmailRequest): Promise<SendEmailRespo
 };
 
 // Get job status
-export const getJobStatus = async (jobId: string, page: number = 1): Promise<JobStatus> => {
-  const response = await api.get<JobStatus>(`/status/${jobId}`, { params: { page } });
+export const getJobStatus = async (
+  jobId: string,
+  page: number = 1,
+  filters: JobStatusFilters = {},
+): Promise<JobStatus> => {
+  const response = await api.get<JobStatus>(`/status/${jobId}`, {
+    params: { page, ...filters },
+  });
   return response.data;
 };
 

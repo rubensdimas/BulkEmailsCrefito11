@@ -159,6 +159,26 @@ describe('emailStatusImportService', () => {
     const parsed = await parseEmailStatusCsv(modelPath);
 
     expect(parsed).toMatchObject({
+      duplicateRows: 0,
+      invalidRows: 0,
+      invalidRowNumbersTruncated: false,
+    });
+    expect(parsed.totalRows).toBeGreaterThan(0);
+    expect(parsed.updates).toHaveLength(parsed.totalRows);
+  });
+
+  it('streams a Mailgrid-compatible report with 3,907 valid rows', async () => {
+    const rows = Array.from({ length: 3907 }, (_, index) => (
+      `msg-${index + 1};recipient-${index + 1}@example.com;21/08/2026;13:20:45;21/08/2026;18:00:00;Entregue`
+    ));
+    const filePath = csvFile([
+      'ID Mensagem;Para;Data envio;Hora envio;Data entrega;Hora entrega;Status',
+      ...rows,
+    ].join('\n'));
+
+    const parsed = await parseEmailStatusCsv(filePath);
+
+    expect(parsed).toMatchObject({
       totalRows: 3907,
       duplicateRows: 0,
       invalidRows: 0,

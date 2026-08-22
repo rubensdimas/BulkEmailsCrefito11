@@ -2,14 +2,16 @@ import { useCallback, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import StatusPanel from '../components/StatusPanel/StatusPanel';
 import { useJobStatus } from '../hooks/useJobStatus';
-import type { JobStatus } from '../services/api';
+import type { JobStatus, JobStatusFilters } from '../services/api';
 import EmailStatusTable from '../components/EmailStatusTable/EmailStatusTable';
 import { AccountMenu } from '../components/Auth/AccountMenu';
 import StatusImport from '../components/StatusImport/StatusImport';
+import StatusFilters from '../components/StatusFilters/StatusFilters';
 
 export function StatusPage() {
   const { jobId } = useParams<{ jobId: string }>();
   const [page, setPage] = useState(1);
+  const [filters, setFilters] = useState<JobStatusFilters>({});
 
   // Stable callbacks — won't trigger hook dependency cascades
   const handleComplete = useCallback((result: JobStatus) => {
@@ -33,7 +35,15 @@ export function StatusPage() {
     onComplete: handleComplete,
     onError: handleError,
     page,
+    filters,
   });
+
+  const handleApplyFilters = useCallback((nextFilters: JobStatusFilters) => {
+    setPage(1);
+    setFilters(nextFilters);
+  }, []);
+
+  const hasActiveFilters = Boolean(filters.recipient || filters.status);
 
   if (!jobId) {
     return (
@@ -103,13 +113,16 @@ export function StatusPage() {
           onStopPolling={stopPolling}
         />
 
+        <StatusImport jobId={jobId} onImported={refresh} />
+
+        <StatusFilters appliedFilters={filters} onApply={handleApplyFilters} />
+
         <EmailStatusTable
           emails={status?.emails || []}
           pagination={status?.pagination}
           onPageChange={setPage}
+          hasActiveFilters={hasActiveFilters}
         />
-
-        <StatusImport jobId={jobId} onImported={refresh} />
 
         {/* Completion message */}
         {status && (status.status === 'completed' || status.status === 'failed') && (
