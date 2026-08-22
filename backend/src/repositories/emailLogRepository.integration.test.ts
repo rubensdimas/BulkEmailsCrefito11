@@ -266,12 +266,20 @@ describeDatabase('EmailLogRepository PostgreSQL integration', () => {
       .where({ job_id: job.id, recipient_email: recipients[2] })
       .update({ status: 'hard_bounce' });
 
+    await database('email_logs')
+      .where({ job_id: job.id, recipient_email: recipients[3] })
+      .update({ status: 'sent' });
+
     const deliveredPage = await repository.findPageByJobId(job.id, 1, 1, {
       status: 'delivered',
     });
     expect(deliveredPage.total).toBe(2);
     expect(deliveredPage.data).toHaveLength(1);
     expect(deliveredPage.data[0].status).toBe('delivered');
+
+    const sentPage = await repository.findPageByJobId(job.id, 1, 100, { status: 'sent' });
+    expect(sentPage.total).toBe(1);
+    expect(sentPage.data[0].recipient_email).toBe(recipients[3]);
 
     const combined = await repository.findPageByJobId(job.id, 1, 100, {
       recipient: recipients[2],

@@ -41,7 +41,7 @@ export interface EmailStatusImportApplyResult {
 
 export interface EmailLogPageFilter {
   recipient?: string;
-  status?: Extract<EmailLogStatus, 'pending' | 'delivered' | 'soft_bounce' | 'hard_bounce'>;
+  status?: Extract<EmailLogStatus, 'pending' | 'sent' | 'delivered' | 'soft_bounce' | 'hard_bounce'>;
 }
 
 const timestampValue = (value: Date | string | null): number | null => (

@@ -108,9 +108,22 @@ describe('getJobStatus pagination', () => {
     }));
   });
 
+  it('accepts the sent delivery filter', async () => {
+    findPageByJobId.mockResolvedValue({ total: 0, data: [] });
+    const req = {
+      params: { jobId: 'job-1' },
+      query: { page: '1', status: 'sent' },
+    } as unknown as Request;
+    const res = { status, json } as unknown as Response;
+
+    await getJobStatus(req, res, next);
+
+    expect(findPageByJobId).toHaveBeenCalledWith('job-1', 1, 100, { status: 'sent' });
+  });
+
   it.each([
     [{ recipient: 'not-an-email' }, 'Recipient must be a valid email address'],
-    [{ status: 'sent' }, 'Status must be one of'],
+    [{ status: 'failed' }, 'Status must be one of'],
     [{ status: ['pending'] }, 'Status must be one of'],
   ])('rejects invalid delivery filters %#', async (query, expectedError) => {
     const req = { params: { jobId: 'job-1' }, query } as unknown as Request;

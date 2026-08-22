@@ -100,6 +100,7 @@ test('reorders cards and filters recipients on the server before pagination', as
   await expect.poll(() => requestedUrls.some((url) => url.searchParams.get('page') === '2')).toBe(true);
 
   await page.getByLabel('Endereço de e-mail').fill(' Target@Example.COM ');
+  await expect(page.getByLabel('Status')).toContainText('Enviado');
   await page.getByLabel('Status').selectOption('hard_bounce');
   await page.getByRole('button', { name: 'Aplicar filtros' }).click();
 

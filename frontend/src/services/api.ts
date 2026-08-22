@@ -113,7 +113,7 @@ export type EmailDeliveryStatus =
 
 export type EmailStatusFilterValue = Extract<
   EmailDeliveryStatus,
-  'pending' | 'delivered' | 'soft_bounce' | 'hard_bounce'
+  'pending' | 'sent' | 'delivered' | 'soft_bounce' | 'hard_bounce'
 >;
 
 export interface JobStatusFilters {

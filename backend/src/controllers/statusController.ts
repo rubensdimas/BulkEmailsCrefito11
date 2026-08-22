@@ -10,6 +10,7 @@ import { isValidEmail } from '../services/emailValidator';
 const STATUS_PAGE_SIZE = 100;
 const FILTERABLE_DELIVERY_STATUSES = [
   'pending',
+  'sent',
   'soft_bounce',
   'hard_bounce',
   'delivered',

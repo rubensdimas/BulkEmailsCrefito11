@@ -8,6 +8,7 @@ interface StatusFiltersProps {
 
 const STATUS_OPTIONS: Array<{ value: EmailStatusFilterValue; label: string }> = [
   { value: 'pending', label: 'Pendente' },
+  { value: 'sent', label: 'Enviado' },
   { value: 'soft_bounce', label: 'Soft bounce' },
   { value: 'hard_bounce', label: 'Hard bounce' },
   { value: 'delivered', label: 'Entregue' },
