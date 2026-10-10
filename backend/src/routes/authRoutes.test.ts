@@ -1,3 +1,5 @@
+const mockRedisDelete = jest.fn().mockResolvedValue(1);
+jest.mock('../config/redis', () => ({ getRedisClient: () => ({ del: mockRedisDelete }) }));
 import type { NextFunction, Request, Response } from 'express';
 
 jest.mock('../services/oidcService', () => ({
@@ -9,8 +11,9 @@ jest.mock('../services/oidcService', () => ({
   getLogoutUrl: jest.fn(),
   getUserInfo: jest.fn(),
   revokeRefreshToken: jest.fn(),
+  refreshOidcTokens: jest.fn(),
   validateIdToken: jest.fn(),
-  OidcError: class OidcError extends Error { constructor(message: string, public code = 'oidc_error') { super(message); } },
+  OidcError: jest.requireActual('../services/oidcConfiguration').OidcError,
 }));
 jest.mock('../services/authSessionService', () => ({
   ...jest.requireActual('../services/authSessionService'),
@@ -23,7 +26,7 @@ jest.mock('../services/authSessionService', () => ({
 }));
 
 import authRoutes from './authRoutes';
-import { requireTrustedOrigin } from '../middlewares/authentication';
+import { requireTrustedOrigin, SESSION_COOKIE } from '../middlewares/authentication';
 import {
   consumeLoginTransaction,
   createSession,
@@ -39,6 +42,7 @@ import {
   getLogoutUrl,
   getUserInfo,
   revokeRefreshToken,
+  refreshOidcTokens,
   validateIdToken,
 } from '../services/oidcService';
 
@@ -162,4 +166,32 @@ describe('OIDC operation failures', () => {
    expect(revokeRefreshToken).not.toHaveBeenCalled(); expect(getLogoutUrl).not.toHaveBeenCalled();
    expect(response.clearCookie).toHaveBeenCalled();
  });
+});
+
+describe('real authentication route chain', () => {
+  it.each([['get', '/me'], ['post', '/logout']])('preserves changed-configuration reason on %s %s', async (method, path) => {
+    jest.clearAllMocks();
+    (getSession as jest.Mock).mockResolvedValueOnce({ provider: 'oidc', user: { sub: 'u' }, refreshToken: 'encrypted-token', accessTokenExpiresAt: 1, issuer: 'https://old.example', configurationFingerprint: 'old' });
+    (assertOidcBinding as jest.Mock).mockRejectedValueOnce(new OidcError('changed', 'not_configured'));
+    const response = mockResponse();
+    const request = { method: method.toUpperCase(), headers: { cookie: `${SESSION_COOKIE}=sid` }, get: jest.fn().mockReturnValue('https://app.example') } as unknown as Request;
+    let reachedHandler = false;
+    const handlers = routeStack(method, path);
+    for (const handler of handlers) {
+      let advanced = false;
+      const stepNext = jest.fn((error?: unknown) => { if (error) throw error; advanced = true; });
+      if (handler === handlers[handlers.length - 1]) reachedHandler = true;
+      await handler(request, response as unknown as Response, stepNext);
+      if (!advanced) break;
+    }
+    expect(reachedHandler).toBe(false);
+    expect(response.status).toHaveBeenCalledWith(401);
+    expect(response.json).toHaveBeenCalledWith({ success: false, error: 'not_configured' });
+    expect(response.clearCookie).toHaveBeenCalledWith(SESSION_COOKIE, expect.any(Object));
+    expect(mockRedisDelete).toHaveBeenCalledWith('oidc:session:sid');
+    expect(refreshOidcTokens).not.toHaveBeenCalled();
+    expect(revokeRefreshToken).not.toHaveBeenCalled();
+    expect(exchangeAuthorizationCode).not.toHaveBeenCalled();
+    expect(getUserInfo).not.toHaveBeenCalled();
+  });
 });

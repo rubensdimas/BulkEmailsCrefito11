@@ -1,4 +1,5 @@
 import { randomBytes } from 'crypto';
+import { OidcError } from './oidcConfiguration';
 import { getRedisClient } from '../config/redis';
 import {
   assertOidcBinding,
@@ -184,8 +185,12 @@ export const refreshSessionIfNeeded = async (id: string, session: AuthSession): 
     };
     await getRedisClient().set(sessionKey(id), JSON.stringify(next), 'EX', SESSION_TTL_SECONDS);
     return next;
-  } catch {
+  } catch (error) {
     await deleteSession(id);
+    // Authentication must preserve the login-required configuration signal.
+    if (error instanceof OidcError && ['not_configured', 'configuration_error'].includes(error.code)) {
+      throw new OidcError('Configuração da intranet indisponível. Entre novamente.', 'not_configured');
+    }
     return null;
   }
 };

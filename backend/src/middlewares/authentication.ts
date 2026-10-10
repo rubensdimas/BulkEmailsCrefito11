@@ -1,4 +1,5 @@
 import { NextFunction, Request, Response } from 'express';
+import { OidcError } from '../services/oidcConfiguration';
 import { AuthSession, getSession, refreshSessionIfNeeded } from '../services/authSessionService';
 
 export const SESSION_COOKIE = process.env.NODE_ENV === 'production' ? '__Host-bulkmail_session' : 'bulkmail_session';
@@ -58,6 +59,11 @@ export const requireAuthentication = async (
     request.auth = { sessionId, session: currentSession };
     next();
   } catch (error) {
+    if (error instanceof OidcError && error.code === 'not_configured') {
+      response.clearCookie(SESSION_COOKIE, cookieOptions());
+      response.status(401).json({ success: false, error: 'not_configured' });
+      return;
+    }
     next(error);
   }
 };
