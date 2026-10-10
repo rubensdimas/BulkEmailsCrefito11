@@ -37,7 +37,14 @@ export interface LocalUserStore {
   setDisabled(id: string, disabled: boolean): Promise<void>;
   recordLogin(id: string): Promise<void>;
 }
+export class LastActiveAdminError extends Error {
+  constructor() { super('Cannot remove the last active admin'); this.name = 'LastActiveAdminError'; }
+}
+export class UserNotFoundError extends Error {
+  constructor() { super('User not found'); this.name = 'UserNotFoundError'; }
+}
 export interface UserStore extends LocalUserStore {
+  updateAccess(id: string, change: { role?: UserRole; disabled?: boolean }): Promise<User>;
   findById(id: string): Promise<User | null>;
   findByOidcSub(issuer: string, sub: string): Promise<User | null>;
   upsertOidcUser(input: { issuer: string; sub: string; email?: string; name?: string }): Promise<User>;
@@ -110,7 +117,27 @@ export class UserRepository implements UserStore {
     return updated === 1;
   }
   async setDisabled(id: string, disabled: boolean): Promise<void> {
-    await this.db('users').where({ id }).update({ disabled_at: disabled ? this.db.fn.now() : null });
+    await this.updateAccess(id, { disabled });
+  }
+  async updateAccess(id: string, change: { role?: UserRole; disabled?: boolean }): Promise<User> {
+    return this.db.transaction(async (transaction) => {
+      // Lock before reading any rows so concurrent removals observe committed state.
+      await transaction.raw('SELECT pg_advisory_xact_lock(420002)');
+      const current = await transaction<UserRow>('users').where({ id }).forUpdate().first();
+      if (!current) throw new UserNotFoundError();
+      const nextRole = change.role ?? current.role;
+      const nextDisabled = change.disabled ?? (current.disabled_at !== null);
+      if (current.role === 'admin' && current.disabled_at === null && (nextRole !== 'admin' || nextDisabled)) {
+        const another = await transaction('users').where({ role: 'admin' }).whereNull('disabled_at').whereNot({ id }).first();
+        if (!another) throw new LastActiveAdminError();
+      }
+      if (change.role === undefined && change.disabled === undefined) return fromRow(current);
+      const changes: Partial<UserRow> = {};
+      if (change.role !== undefined) changes.role = change.role;
+      if (change.disabled !== undefined) changes.disabled_at = change.disabled ? new Date() : null;
+      const [updated] = await transaction<UserRow>('users').where({ id }).update(changes).returning('*');
+      return fromRow(updated);
+    });
   }
   async recordLogin(id: string): Promise<void> {
     await this.db('users').where({ id }).update({ last_login_at: this.db.fn.now() });

@@ -6,7 +6,7 @@ import { createInterface } from 'readline';
 import { Writable } from 'stream';
 import { closeDatabase, initDatabase } from '../config/database';
 import { closeRedisConnection } from '../config/redis';
-import { createUserRepository } from '../repositories/userRepository';
+import { createUserRepository, LastActiveAdminError } from '../repositories/userRepository';
 import { revokeLocalUserSessions } from '../services/authSessionService';
 import { createLocalAdminService, LocalAdminError } from '../services/localUserAdminService';
 import { hashPassword } from '../services/passwordHasher';
@@ -79,7 +79,10 @@ const main = async (): Promise<void> => {
 
 if (require.main === module) {
   main().catch((error: unknown) => {
-    console.error(error instanceof LocalAdminError ? error.message : error);
+    const message = error instanceof LastActiveAdminError
+      ? 'Não é possível desativar o último administrador ativo.'
+      : error instanceof LocalAdminError ? error.message : error;
+    console.error(message);
     process.exitCode = 1;
   });
 }

@@ -1,3 +1,4 @@
+import { LastActiveAdminError } from '../repositories/userRepository';
 import type { LocalUser, LocalUserStore, UserRole } from '../repositories/userRepository';
 import { createLocalAdminService, LocalAdminError } from './localUserAdminService';
 
@@ -94,6 +95,14 @@ describe('localUserAdminService', () => {
     const { service } = setup();
     await expect(service.resetPassword('ghost', 'nova senha longa')).rejects.toThrow('não existe');
     await expect(service.setDisabled('ghost', true)).rejects.toThrow('não existe');
+  });
+
+  it('translates protected-operation rejection without revoking sessions', async () => {
+    const { users, service, revokeSessions } = setup();
+    await service.create('admin', 'uma senha longa');
+    jest.spyOn(users, 'setDisabled').mockRejectedValue(new LastActiveAdminError());
+    await expect(service.setDisabled('admin', true)).rejects.toThrow('último administrador ativo');
+    expect(revokeSessions).not.toHaveBeenCalled();
   });
 
   it('disables with session revocation and enables without it', async () => {

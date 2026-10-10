@@ -1,3 +1,4 @@
+import { LastActiveAdminError } from '../repositories/userRepository';
 import type { LocalUser, LocalUserStore } from '../repositories/userRepository';
 import { normalizeUsername } from './localAuthService';
 import { validatePasswordPolicy } from './passwordHasher';
@@ -47,7 +48,12 @@ export const createLocalAdminService = (deps: LocalAdminDependencies) => {
 
     async setDisabled(username: string, disabled: boolean): Promise<number> {
       const user = await existing(username);
-      await deps.users.setDisabled(user.id, disabled);
+      try {
+        await deps.users.setDisabled(user.id, disabled);
+      } catch (error) {
+        if (error instanceof LastActiveAdminError) throw new LocalAdminError('Não é possível desativar o último administrador ativo.');
+        throw error;
+      }
       return disabled ? deps.revokeSessions(user.id) : 0;
     },
   };

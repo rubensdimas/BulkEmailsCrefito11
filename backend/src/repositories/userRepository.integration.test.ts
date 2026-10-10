@@ -1,5 +1,6 @@
 import knex, { Knex } from 'knex';
-import { UserRepository } from './userRepository';
+import { spawnSync } from 'child_process';
+import { UserRepository, LastActiveAdminError, UserNotFoundError } from './userRepository';
 import { up as createLocalUsers } from '../migrations/20261010000000_create_local_users';
 import { up as migrateUsers, down as rollbackUsers } from '../migrations/20261010120000_users_roles';
 
@@ -118,11 +119,13 @@ describeDatabase('UserRepository PostgreSQL integration', () => {
   it('lists users and supports local account disabling and login recording', async () => {
     expect((await repository.list()).map((user) => user.username ?? user.oidcSub)).toEqual(expect.arrayContaining([username, sub]));
     const user = (await repository.findByUsername(username))!;
+    const other = await repository.create({ username: `other-${suffix}`, passwordHash: 'hash' });
     await repository.setDisabled(user.id, true);
     await repository.recordLogin(user.id);
     expect(await repository.findById(user.id)).toMatchObject({ disabledAt: expect.any(Date), lastLoginAt: expect.any(Date) });
     await repository.setDisabled(user.id, false);
     expect((await repository.findById(user.id))?.disabledAt).toBeNull();
+    await database('users').where({ id: other.id }).delete();
     await expect(repository.findById('00000000-0000-0000-0000-000000000000')).resolves.toBeNull();
     await expect(repository.findByUsername('unknown')).resolves.toBeNull();
   });
@@ -138,4 +141,76 @@ describeDatabase('UserRepository PostgreSQL integration', () => {
   it('preserves the lowercase username constraint', async () => {
     await expect(repository.create({ username: `UP-${suffix}`, passwordHash: 'hash' })).rejects.toThrow();
   });
+});
+
+// Separate schema and pool: committed fixtures permit genuine overlapping transactions.
+describeDatabase('UserRepository access protection', () => {
+  let database: Knex;
+  let repository: UserRepository;
+  const schema = `access_it_${Date.now()}`;
+  beforeAll(async () => {
+    database = knex({ client: 'pg', connection: {
+      host: '127.0.0.1', port: Number(process.env.POSTGRES_PORT),
+      user: 'bulkmail', password: 'bulkmail123', database: 'bulkmail',
+    }, pool: { min: 0, max: 4 }, searchPath: [schema] });
+    await database.raw('CREATE SCHEMA ??', [schema]);
+    await database.raw('CREATE TABLE ??.users (LIKE public.users INCLUDING ALL)', [schema]);
+    repository = new UserRepository(database);
+  });
+  beforeEach(async () => { await database('users').delete(); });
+  afterAll(async () => {
+    await database.raw('DROP SCHEMA ?? CASCADE', [schema]);
+    await database.destroy();
+  });
+  it.each([{ role: 'operator' as const }, { disabled: true }])('rejects removing the last active admin: %p', async (change) => {
+    const admin = await repository.create({ username: 'only-admin', passwordHash: 'h' });
+    await repository.create({ username: 'disabled-admin', passwordHash: 'h' });
+    await database('users').where({ username: 'disabled-admin' }).update({ disabled_at: new Date() });
+    await expect(repository.updateAccess(admin.id, change)).rejects.toBeInstanceOf(LastActiveAdminError);
+    await expect(repository.findById(admin.id)).resolves.toMatchObject({ role: 'admin', disabledAt: null });
+    const protectedUpdate = jest.spyOn(repository, 'updateAccess');
+    await expect(repository.setDisabled(admin.id, true)).rejects.toBeInstanceOf(LastActiveAdminError);
+    expect(protectedUpdate).toHaveBeenCalledWith(admin.id, { disabled: true });
+    protectedUpdate.mockRestore();
+  });
+  it('allows self-demotion with another admin and returns unchanged users for empty changes', async () => {
+    const first = await repository.create({ username: 'first-admin', passwordHash: 'h' });
+    await repository.create({ username: 'second-admin', passwordHash: 'h' });
+    await expect(repository.updateAccess(first.id, {})).resolves.toEqual(first);
+    await expect(repository.updateAccess(first.id, { role: 'operator' })).resolves.toMatchObject({ role: 'operator' });
+  });
+  it('permits operator changes and bootstrapping an admin without any current admin', async () => {
+    const user = await repository.create({ username: 'operator', passwordHash: 'h', role: 'operator' });
+    expect((await repository.updateAccess(user.id, { disabled: true })).disabledAt).toBeInstanceOf(Date);
+    await expect(repository.updateAccess(user.id, { disabled: false })).resolves.toMatchObject({ disabledAt: null });
+    await expect(repository.updateAccess(user.id, { role: 'admin' })).resolves.toMatchObject({ role: 'admin' });
+    await database('users').where({ id: user.id }).update({ disabled_at: new Date() });
+    await expect(repository.updateAccess(user.id, { disabled: false })).resolves.toMatchObject({ role: 'admin', disabledAt: null });
+  });
+  it('reports missing users including empty changes', async () => {
+    const id = '00000000-0000-0000-0000-000000000000';
+    await expect(repository.updateAccess(id, {})).rejects.toBeInstanceOf(UserNotFoundError);
+  });
+  it('serializes concurrent demotion and disabling of exactly two active admins', async () => {
+    const first = await repository.create({ username: 'first-admin', passwordHash: 'h' });
+    const second = await repository.create({ username: 'second-admin', passwordHash: 'h' });
+    const results = await Promise.allSettled([
+      repository.updateAccess(first.id, { role: 'operator' }),
+      repository.updateAccess(second.id, { disabled: true }),
+    ]);
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    const rejected = results.find((result): result is PromiseRejectedResult => result.status === 'rejected');
+    expect(rejected?.reason).toBeInstanceOf(LastActiveAdminError);
+    expect(await database('users').where({ role: 'admin' }).whereNull('disabled_at')).toHaveLength(1);
+  });
+  it('CLI refuses disabling the last admin with a Portuguese error and nonzero exit', async () => {
+    const admin = await repository.create({ username: 'only-admin', passwordHash: 'h' });
+    const result = spawnSync(process.execPath, ['-r', 'ts-node/register', 'src/scripts/manageLocalAdmin.ts', 'disable', '--username=only-admin'], {
+      env: { ...process.env, POSTGRES_HOST: '127.0.0.1', PGOPTIONS: `-c search_path=${schema}`, POSTGRES_PORT: String(process.env.POSTGRES_PORT) },
+      encoding: 'utf8', timeout: 15000,
+    });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('último administrador ativo');
+    await expect(repository.findById(admin.id)).resolves.toMatchObject({ disabledAt: null });
+  }, 20000);
 });
