@@ -84,8 +84,8 @@ const readinessHandler = async (_req: Request, res: Response): Promise<void> => 
 app.get('/api/health/ready', readinessHandler);
 app.get('/api/health', readinessHandler);
 
-// Every remaining API route is an authenticated administrative operation.
-app.use('/api', requireAdmin, requireAuthentication, requirePasswordCurrent, requireTrustedOrigin);
+// Every remaining API route requires authentication and a current password.
+app.use('/api', requireAuthentication, requireTrustedOrigin, requirePasswordCurrent);
 
 // API Routes
 app.use('/api/upload', uploadLimiter, uploadRoutes);
