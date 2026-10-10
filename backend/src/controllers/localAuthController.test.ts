@@ -13,6 +13,7 @@ const admin = {
 const setup = (enabled = true) => {
   const deps = {
     enabled: jest.fn(() => enabled),
+    oidcEnabled: jest.fn().mockResolvedValue(true),
     authenticate: jest.fn(),
     createSession: jest.fn().mockResolvedValue('new-session'),
     deleteSession: jest.fn().mockResolvedValue(undefined),
@@ -27,10 +28,10 @@ const request = (body: unknown, cookie?: string): Request =>
   ({ body, ip: '203.0.113.7', headers: cookie ? { cookie } : {} }) as unknown as Request;
 
 describe('localAuthController', () => {
-  it('reports whether local login is enabled', () => {
-    const { controller, response } = setup(false);
-    controller.options({} as Request, response as unknown as Response);
-    expect(response.json).toHaveBeenCalledWith({ success: true, data: { localLoginEnabled: false } });
+  it('reports which login methods are available', async () => {
+    const { controller, response, next } = setup(false);
+    await controller.options({} as Request, response as unknown as Response, next);
+    expect(response.json).toHaveBeenCalledWith({ success: true, data: { localLoginEnabled: false, oidcEnabled: true } });
   });
 
   it('responds 404 when local login is disabled', async () => {

@@ -1,6 +1,16 @@
+const mockLegacyBinding = jest.fn();
+jest.mock('./databaseService', () => ({ getConfigService: () => ({ getLegacyOidcBinding: mockLegacyBinding }) }));
 import { createSign, generateKeyPairSync } from 'crypto';
 import {
   clearOidcMetadataCache,
+  loadOidcOperationContext,
+  setOidcSettingsSource,
+  refreshOidcTokens,
+  validateStoredOidcSettings,
+  isOidcEnabled,
+  assertOidcBinding,
+  probeOidcProvider,
+  validateOidcSettings,
   createAuthorizationRequest,
   encryptRefreshToken,
   decryptRefreshToken,
@@ -11,6 +21,8 @@ import {
 
 const issuer = 'http://127.0.0.1:8080';
 const clientId = 'oidc_test_client';
+const baseSettings = { enabled: true, issuer, clientId, clientSecret: 'test-client-secret', backchannelOrigin: '' };
+const useSettings = (overrides = {}) => setOidcSettingsSource(async () => ({ ...baseSettings, ...overrides }));
 const metadata = {
   issuer,
   authorization_endpoint: `${issuer}/oauth/authorize`,
@@ -47,9 +59,10 @@ describe('OIDC service', () => {
 
   beforeEach(() => {
     process.env.NODE_ENV = 'test';
-    process.env.OIDC_ISSUER = issuer;
-    process.env.OIDC_CLIENT_ID = clientId;
-    process.env.OIDC_CLIENT_SECRET = 'test-client-secret';
+    delete process.env.OIDC_ISSUER;
+    delete process.env.OIDC_CLIENT_ID;
+    delete process.env.OIDC_CLIENT_SECRET;
+    useSettings();
     process.env.OIDC_SESSION_ENCRYPTION_KEY = 'a'.repeat(64);
     process.env.APP_ORIGIN = 'http://localhost:5173';
     delete process.env.OIDC_BACKCHANNEL_ORIGIN;
@@ -63,7 +76,7 @@ describe('OIDC service', () => {
   it('uses discovery metadata and creates an S256 authorization request', async () => {
     global.fetch = jest.fn().mockResolvedValue(response(metadata));
 
-    const request = await createAuthorizationRequest();
+    const request = await createAuthorizationRequest(await loadOidcOperationContext());
     const url = new URL(request.authorizationUrl);
 
     expect(url.origin).toBe(issuer);
@@ -76,17 +89,17 @@ describe('OIDC service', () => {
   });
 
   it('uses the Docker backchannel for discovery while keeping the browser authorization URL public', async () => {
-    process.env.OIDC_BACKCHANNEL_ORIGIN = 'http://host.docker.internal:8080';
+    useSettings({ backchannelOrigin: 'http://host.docker.internal:8080' });
     global.fetch = jest.fn().mockResolvedValue(response(metadata));
 
-    const request = await createAuthorizationRequest();
+    const request = await createAuthorizationRequest(await loadOidcOperationContext());
 
     expect(global.fetch).toHaveBeenCalledWith('http://host.docker.internal:8080/.well-known/openid-configuration', undefined);
     expect(new URL(request.authorizationUrl).origin).toBe(issuer);
   });
 
   it('uses the Docker backchannel for the authorization-code token exchange', async () => {
-    process.env.OIDC_BACKCHANNEL_ORIGIN = 'http://host.docker.internal:8080';
+    useSettings({ backchannelOrigin: 'http://host.docker.internal:8080' });
     global.fetch = jest.fn()
       .mockResolvedValueOnce(response(metadata))
       .mockResolvedValueOnce(response({
@@ -96,7 +109,7 @@ describe('OIDC service', () => {
         expires_in: 300,
       }));
 
-    await expect(exchangeAuthorizationCode('authorization-code', 'code-verifier')).resolves.toMatchObject({
+    await expect(exchangeAuthorizationCode(await loadOidcOperationContext(), 'authorization-code', 'code-verifier')).resolves.toMatchObject({
       access_token: 'access-token',
       id_token: 'id-token',
     });
@@ -109,7 +122,7 @@ describe('OIDC service', () => {
       .mockResolvedValueOnce(errorResponse(400, { error: 'invalid_grant', error_description: 'sensitive provider detail' }));
 
     try {
-      await exchangeAuthorizationCode('authorization-code', 'code-verifier');
+      await exchangeAuthorizationCode(await loadOidcOperationContext(), 'authorization-code', 'code-verifier');
       throw new Error('Expected token exchange to fail');
     } catch (error) {
       expect(error).toBeInstanceOf(OidcError);
@@ -128,7 +141,7 @@ describe('OIDC service', () => {
       .mockResolvedValueOnce(response(metadata))
       .mockResolvedValueOnce(errorResponse(502, { error: 'invalid grant: secret=leaked' }));
 
-    await expect(exchangeAuthorizationCode('authorization-code', 'code-verifier')).rejects.toMatchObject({
+    await expect(exchangeAuthorizationCode(await loadOidcOperationContext(), 'authorization-code', 'code-verifier')).rejects.toMatchObject({
       code: 'token_exchange_failed',
       providerStatus: 502,
       providerError: undefined,
@@ -136,7 +149,7 @@ describe('OIDC service', () => {
   });
 
   it('validates a signed ID token with issuer, audience and nonce', async () => {
-    process.env.OIDC_BACKCHANNEL_ORIGIN = 'http://host.docker.internal:8080';
+    useSettings({ backchannelOrigin: 'http://host.docker.internal:8080' });
     const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
     const jwk = publicKey.export({ format: 'jwk' });
     global.fetch = jest.fn()
@@ -150,7 +163,7 @@ describe('OIDC service', () => {
       nonce: 'nonce-1',
     });
 
-    await expect(validateIdToken(token, 'nonce-1')).resolves.toEqual({ sub: 'user-1' });
+    await expect(validateIdToken(await loadOidcOperationContext(), token, 'nonce-1')).resolves.toEqual({ sub: 'user-1' });
     expect(global.fetch).toHaveBeenNthCalledWith(2, 'http://host.docker.internal:8080/.well-known/jwks.json', undefined);
   });
 
@@ -168,7 +181,7 @@ describe('OIDC service', () => {
       nonce: 'nonce-1',
     });
 
-    await expect(validateIdToken(token, 'different-nonce')).rejects.toThrow('Invalid ID token');
+    await expect(validateIdToken(await loadOidcOperationContext(), token, 'different-nonce')).rejects.toThrow('Invalid ID token');
   });
 
   it('encrypts refresh tokens before they are stored in sessions', () => {
@@ -176,4 +189,69 @@ describe('OIDC service', () => {
     expect(encrypted).not.toContain('refresh-token-value');
     expect(decryptRefreshToken(encrypted)).toBe('refresh-token-value');
   });
+});
+
+ describe('operation settings', () => {
+ beforeEach(() => { process.env.NODE_ENV = 'test'; process.env.APP_ORIGIN = 'http://localhost:5173'; process.env.OIDC_SESSION_ENCRYPTION_KEY = 'a'.repeat(64); });
+ it.each(['code', 'refresh'])('keeps the snapshot during %s discovery', async (operation) => {
+   let settings = baseSettings;
+   const source = jest.fn(async () => settings);
+   setOidcSettingsSource(source);
+   let complete!: (value: Response) => void;
+   const discovery = new Promise<Response>((resolve) => { complete = resolve; });
+   const transport = jest.spyOn(global, 'fetch').mockReturnValueOnce(discovery).mockResolvedValueOnce(response({ access_token: 'a', id_token: 'i', refresh_token: 'r', expires_in: 300 }));
+   const context = await loadOidcOperationContext();
+   const pending = operation === 'code' ? exchangeAuthorizationCode(context, 'code', 'verifier') : refreshOidcTokens(context, 'refresh');
+   settings = { ...baseSettings, issuer: 'https://new.example', clientSecret: 'new-secret' };
+   complete(response(metadata));
+   await pending;
+   expect(source).toHaveBeenCalledTimes(1);
+   expect(transport).toHaveBeenNthCalledWith(2, metadata.token_endpoint, expect.objectContaining({ headers: expect.objectContaining({ Authorization: `Basic ${Buffer.from(`${clientId}:test-client-secret`).toString('base64')}` }) }));
+   expect(transport.mock.calls.some(([url]) => String(url).includes('new.example'))).toBe(false);
+   transport.mockRestore();
+ });
+ it('validates filled fields while disabled', () => {
+   expect(() => validateStoredOidcSettings({ ...baseSettings, enabled: false, issuer: 'invalid' })).toThrow();
+   expect(() => validateStoredOidcSettings({ enabled: false, issuer: '', clientId: '', clientSecret: '', backchannelOrigin: '' })).not.toThrow();
+ });
+ it('propagates database outages', async () => {
+   setOidcSettingsSource(async () => { throw new Error('database down'); });
+   await expect(isOidcEnabled()).rejects.toThrow('database down');
+ });
+ });
+
+describe('configuration bindings', () => {
+ beforeEach(() => { process.env.NODE_ENV = 'test'; process.env.APP_ORIGIN = 'http://localhost:5173'; process.env.OIDC_SESSION_ENCRYPTION_KEY = 'a'.repeat(64); useSettings(); });
+ it('accepts unchanged legacy binding and rejects changed or missing binding before transport', async () => {
+   const original = await loadOidcOperationContext();
+   const binding = { issuer: original.configuration.issuer, configurationFingerprint: original.configurationFingerprint };
+   mockLegacyBinding.mockResolvedValue(binding);
+   await expect(assertOidcBinding(original, {})).resolves.toBeUndefined();
+   useSettings({ issuer: 'https://new.example' });
+   const changed = await loadOidcOperationContext();
+   const transport = jest.spyOn(global, 'fetch');
+   await expect(assertOidcBinding(changed, {})).rejects.toMatchObject({ code: 'not_configured' });
+   await expect(assertOidcBinding(changed, binding)).rejects.toMatchObject({ code: 'not_configured' });
+   mockLegacyBinding.mockResolvedValue(null);
+   await expect(assertOidcBinding(original, {})).rejects.toMatchObject({ code: 'not_configured' });
+   expect(transport).not.toHaveBeenCalled(); transport.mockRestore();
+ });
+ it('reports absent/disabled config and derives callback origin', async () => {
+   setOidcSettingsSource(async () => null); await expect(isOidcEnabled()).resolves.toBe(false);
+   useSettings({ enabled: false }); await expect(loadOidcOperationContext()).rejects.toMatchObject({ code: 'not_configured' });
+   expect(validateOidcSettings(baseSettings, 'http://localhost:5173/').redirectUri).toBe('http://localhost:5173/api/auth/oidc/callback');
+ });
+ it('probes disabled connection settings without discovery cache', async () => {
+   const transport = jest.spyOn(global, 'fetch').mockResolvedValueOnce(response(metadata)).mockResolvedValueOnce(response({ keys: [{ kty: 'RSA', use: 'sig', alg: 'RS256' }] })).mockResolvedValueOnce(response(metadata)).mockResolvedValueOnce(response({ keys: [{ kty: 'RSA', use: 'sig', alg: 'RS256' }] }));
+   await probeOidcProvider({ ...baseSettings, enabled: false }); await probeOidcProvider(baseSettings);
+   expect(transport).toHaveBeenCalledTimes(4); transport.mockRestore();
+ });
+ it('rejects production HTTP and backchannel even while disabled', () => {
+   process.env.NODE_ENV = 'production';
+   try {
+     expect(() => validateStoredOidcSettings({ ...baseSettings, enabled: false })).toThrow('HTTPS');
+     expect(() => validateStoredOidcSettings({ ...baseSettings, enabled: false, issuer: 'https://idp.example', backchannelOrigin: 'http://internal' })).toThrow('Backchannel');
+     expect(() => validateOidcSettings({ ...baseSettings, issuer: 'https://idp.example' }, 'http://app.example')).toThrow('APP_ORIGIN');
+   } finally { process.env.NODE_ENV = 'test'; }
+ });
 });

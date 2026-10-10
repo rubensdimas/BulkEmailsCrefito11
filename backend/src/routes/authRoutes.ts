@@ -11,6 +11,9 @@ import {
   saveLoginTransaction,
 } from '../services/authSessionService';
 import {
+  assertOidcBinding,
+  loadOidcOperationContext,
+  isOidcEnabled,
   createAuthorizationRequest,
   exchangeAuthorizationCode,
   getLogoutUrl,
@@ -50,6 +53,7 @@ const appOrigin = (): string => (process.env.APP_ORIGIN || '').replace(/\/$/, ''
 
 const localAuth = createLocalAuthController({
   enabled: isLocalLoginEnabled,
+  oidcEnabled: isOidcEnabled,
   // Built per request: the repository only exists after the database is initialized.
   authenticate: (input) => createLocalAuthService({
     users: getUserRepository(),
@@ -65,8 +69,11 @@ router.post('/local/login', requireTrustedOrigin, localAuth.login);
 
 router.get('/oidc/login', async (request: Request, response: Response, next) => {
   try {
-    const authorization = await createAuthorizationRequest();
+    const context = await loadOidcOperationContext();
+    const authorization = await createAuthorizationRequest(context, sanitizeReturnTo(request.query.next));
     const transactionId = await saveLoginTransaction({
+      issuer: authorization.issuer,
+      configurationFingerprint: authorization.configurationFingerprint,
       state: authorization.state,
       nonce: authorization.nonce,
       codeVerifier: authorization.codeVerifier,
@@ -75,6 +82,7 @@ router.get('/oidc/login', async (request: Request, response: Response, next) => 
     response.cookie(LOGIN_COOKIE, transactionId, cookieOptions(LOGIN_COOKIE_MAX_AGE));
     response.redirect(302, authorization.authorizationUrl);
   } catch (error) {
+    if (error instanceof OidcError && ['not_configured', 'configuration_error'].includes(error.code)) { response.redirect(302, `${appOrigin()}/login?auth_error=not_configured`); return; }
     next(error);
   }
 });
@@ -100,18 +108,20 @@ router.get('/oidc/callback', async (request: Request, response: Response) => {
       return;
     }
 
-    const tokens = await exchangeAuthorizationCode(code, transaction.codeVerifier);
+    const context = await loadOidcOperationContext();
+    await assertOidcBinding(context, transaction);
+    const tokens = await exchangeAuthorizationCode(context, code, transaction.codeVerifier);
     if (!tokens.refresh_token) {
       fail('missing_refresh_token');
       return;
     }
-    const claims = await validateIdToken(tokens.id_token, transaction.nonce);
-    const user = await getUserInfo(tokens.access_token);
+    const claims = await validateIdToken(context, tokens.id_token, transaction.nonce);
+    const user = await getUserInfo(context, tokens.access_token);
     if (claims.sub !== user.sub) {
       fail('invalid_identity');
       return;
     }
-    const sessionId = await createSession(user, tokens.refresh_token, tokens.expires_in);
+    const sessionId = await createSession(context, user, tokens.refresh_token, tokens.expires_in);
     response.cookie(SESSION_COOKIE, sessionId, cookieOptions(SESSION_COOKIE_MAX_AGE));
     response.redirect(302, `${appOrigin()}${sanitizeReturnTo(transaction.returnTo)}`);
   } catch (error) {
@@ -125,7 +135,7 @@ router.get('/oidc/callback', async (request: Request, response: Response) => {
     } else {
       console.error('[OIDC] Callback failed:', error instanceof Error ? error.message : error);
     }
-    fail('authentication_failed');
+    fail(error instanceof OidcError && ['not_configured', 'configuration_error'].includes(error.code) ? 'not_configured' : 'authentication_failed');
   }
 });
 
@@ -146,9 +156,12 @@ router.post('/logout', requireAuthentication, requireTrustedOrigin, async (reque
       response.status(200).json({ success: true, logoutUrl: null });
       return;
     }
-    await revokeRefreshToken(getRefreshTokenForSession(session));
-    response.status(200).json({ success: true, logoutUrl: await getLogoutUrl() });
+    const context = await loadOidcOperationContext();
+    await assertOidcBinding(context, session);
+    await revokeRefreshToken(context, getRefreshTokenForSession(session));
+    response.status(200).json({ success: true, logoutUrl: await getLogoutUrl(context) });
   } catch (error) {
+    if (error instanceof OidcError && ['not_configured', 'configuration_error'].includes(error.code)) { response.status(200).json({ success: true, logoutUrl: `${appOrigin()}/login?auth_error=not_configured` }); return; }
     next(error);
   }
 });

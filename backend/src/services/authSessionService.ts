@@ -1,6 +1,9 @@
 import { randomBytes } from 'crypto';
 import { getRedisClient } from '../config/redis';
 import {
+  assertOidcBinding,
+  loadOidcOperationContext,
+  OidcOperationContext,
   decryptRefreshToken,
   encryptRefreshToken,
   getUserInfo,
@@ -15,6 +18,8 @@ const LOGIN_TTL_SECONDS = 5 * 60;
 const SESSION_TTL_SECONDS = 8 * 60 * 60;
 
 export interface OidcLoginTransaction {
+  issuer?: string;
+  configurationFingerprint?: string;
   state: string;
   nonce: string;
   codeVerifier: string;
@@ -31,6 +36,8 @@ export type AuthProvider = 'oidc' | 'local';
 
 export interface OidcAuthSession {
   provider: 'oidc';
+  issuer?: string;
+  configurationFingerprint?: string;
   user: AuthenticatedUser;
   refreshToken: string;
   accessTokenExpiresAt: number;
@@ -76,6 +83,7 @@ export const consumeLoginTransaction = async (id: string | undefined): Promise<O
 };
 
 export const createSession = async (
+  context: OidcOperationContext,
   user: AuthenticatedUser,
   refreshToken: string,
   expiresInSeconds: number,
@@ -83,6 +91,8 @@ export const createSession = async (
   const id = createOpaqueId();
   const session: OidcAuthSession = {
     provider: 'oidc',
+    issuer: context.configuration.issuer,
+    configurationFingerprint: context.configurationFingerprint,
     user,
     refreshToken: encryptRefreshToken(refreshToken),
     accessTokenExpiresAt: Date.now() + expiresInSeconds * 1000,
@@ -130,6 +140,8 @@ const parseSession = (value: string | null): AuthSession | null => {
     if (!stored.refreshToken || !Number.isFinite(stored.accessTokenExpiresAt)) return null;
     return {
       provider: 'oidc',
+      issuer: stored.issuer,
+      configurationFingerprint: stored.configurationFingerprint,
       user: stored.user,
       refreshToken: stored.refreshToken,
       accessTokenExpiresAt: stored.accessTokenExpiresAt as number,
@@ -150,12 +162,13 @@ export const getSession = async (id: string | undefined): Promise<AuthSession | 
 
 export const refreshSessionIfNeeded = async (id: string, session: AuthSession): Promise<AuthSession | null> => {
   if (isLocalSession(session)) return session;
-  if (!shouldRefreshToken(session.accessTokenExpiresAt)) return session;
-
   try {
-    const tokens = await refreshOidcTokens(decryptRefreshToken(session.refreshToken));
-    const identity = await validateIdToken(tokens.id_token);
-    const user = await getUserInfo(tokens.access_token);
+    const context = await loadOidcOperationContext();
+    await assertOidcBinding(context, session);
+    if (!shouldRefreshToken(session.accessTokenExpiresAt)) return session;
+    const tokens = await refreshOidcTokens(context, decryptRefreshToken(session.refreshToken));
+    const identity = await validateIdToken(context, tokens.id_token);
+    const user = await getUserInfo(context, tokens.access_token);
     if (identity.sub !== session.user.sub || user.sub !== session.user.sub || !tokens.refresh_token) {
       await deleteSession(id);
       return null;
@@ -163,6 +176,8 @@ export const refreshSessionIfNeeded = async (id: string, session: AuthSession): 
 
     const next: OidcAuthSession = {
       provider: 'oidc',
+      issuer: context.configuration.issuer,
+      configurationFingerprint: context.configurationFingerprint,
       user: { sub: user.sub, name: user.name, email: user.email },
       refreshToken: encryptRefreshToken(tokens.refresh_token),
       accessTokenExpiresAt: Date.now() + tokens.expires_in * 1000,

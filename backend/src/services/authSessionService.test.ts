@@ -27,6 +27,8 @@ const mockRedis = {
 
 jest.mock('../config/redis', () => ({ getRedisClient: () => mockRedis }));
 jest.mock('./oidcService', () => ({
+  loadOidcOperationContext: jest.fn().mockResolvedValue({ configuration: { issuer: 'https://a.example' }, configurationFingerprint: 'a' }),
+  assertOidcBinding: jest.fn().mockResolvedValue(undefined),
   refreshOidcTokens: jest.fn(),
   validateIdToken: jest.fn(),
   getUserInfo: jest.fn(),
@@ -35,7 +37,7 @@ jest.mock('./oidcService', () => ({
   decryptRefreshToken: jest.fn((value: string) => value.replace(/^enc:/, '')),
 }));
 
-import { refreshOidcTokens } from './oidcService';
+import { assertOidcBinding, loadOidcOperationContext, refreshOidcTokens, validateIdToken, getUserInfo } from './oidcService';
 import {
   consumeLoginTransaction,
   createLocalSession,
@@ -116,4 +118,28 @@ describe('authSessionService', () => {
     const id = await saveLoginTransaction({ state: 's', nonce: 'n', codeVerifier: 'v', returnTo: '/dashboard' });
     await expect(consumeLoginTransaction(id)).resolves.toEqual({ state: 's', nonce: 'n', codeVerifier: 'v', returnTo: '/dashboard' });
   });
+});
+
+describe('OIDC refresh operation', () => {
+ it('deletes incompatible sessions before token transport', async () => {
+  (assertOidcBinding as jest.Mock).mockRejectedValueOnce(new Error('changed'));
+  mockStrings.set('oidc:session:incompatible', 'stored');
+  await expect(refreshSessionIfNeeded('incompatible', { provider: 'oidc', user: { sub: 'u' }, refreshToken: 'enc:r', accessTokenExpiresAt: 1, issuer: 'https://old.example', configurationFingerprint: 'old' })).resolves.toBeNull();
+  expect(mockStrings.has('oidc:session:incompatible')).toBe(false);
+  expect(refreshOidcTokens).not.toHaveBeenCalled();
+ });
+ it('passes one loaded context to every refresh helper', async () => {
+  jest.clearAllMocks();
+  (refreshOidcTokens as jest.Mock).mockResolvedValueOnce({ refresh_token: 'next', id_token: 'i', access_token: 'a', expires_in: 300 });
+  (validateIdToken as jest.Mock).mockResolvedValueOnce({ sub: 'u' });
+  (getUserInfo as jest.Mock).mockResolvedValueOnce({ sub: 'u' });
+  const result = await refreshSessionIfNeeded('snapshot', { provider: 'oidc', user: { sub: 'u' }, refreshToken: 'enc:r', accessTokenExpiresAt: 1 });
+  const context = (loadOidcOperationContext as jest.Mock).mock.results[0].value;
+  const resolved = await context;
+  expect(loadOidcOperationContext).toHaveBeenCalledTimes(1);
+  expect(refreshOidcTokens).toHaveBeenCalledWith(resolved, 'r');
+  expect(validateIdToken).toHaveBeenCalledWith(resolved, 'i');
+  expect(getUserInfo).toHaveBeenCalledWith(resolved, 'a');
+  expect(result).toMatchObject({ issuer: 'https://a.example', configurationFingerprint: 'a' });
+ });
 });

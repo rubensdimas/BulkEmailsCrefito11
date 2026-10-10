@@ -9,6 +9,7 @@ export const MAX_PASSWORD_INPUT_LENGTH = 1024;
 
 export interface LocalAuthControllerDependencies {
   enabled: () => boolean;
+  oidcEnabled: () => Promise<boolean>;
   authenticate: (input: LocalAuthInput) => Promise<LocalAuthResult>;
   createSession: (user: AuthenticatedUser, localUserId: string) => Promise<string>;
   deleteSession: (sessionId: string | undefined) => Promise<void>;
@@ -23,8 +24,8 @@ const isValidCredentialInput = (username: unknown, password: unknown): username 
   && password.length <= MAX_PASSWORD_INPUT_LENGTH;
 
 export const createLocalAuthController = (deps: LocalAuthControllerDependencies) => ({
-  options: (_request: Request, response: Response): void => {
-    response.status(200).json({ success: true, data: { localLoginEnabled: deps.enabled() } });
+  options: async (_request: Request, response: Response, next: NextFunction): Promise<void> => {
+    try { response.status(200).json({ success: true, data: { localLoginEnabled: deps.enabled(), oidcEnabled: await deps.oidcEnabled() } }); } catch (error) { next(error); }
   },
 
   login: async (request: Request, response: Response, next: NextFunction): Promise<void> => {

@@ -24,7 +24,7 @@ import {
   webhookLimiter,
 } from './middlewares/security';
 import { requireAuthentication, requireTrustedOrigin } from './middlewares/authentication';
-import { assertOidcConfiguration } from './services/oidcService';
+import { assertSessionEncryptionKey } from './services/oidcService';
 import { getDatabase } from './config/database';
 import { getRedisClient, closeRedisConnection } from './config/redis';
 import { shutdownDatabase } from './services/databaseService';
@@ -102,7 +102,7 @@ app.use(notFoundHandler);
  * Initialize and start server
  */
 const startServer = async (): Promise<Server> => {
-  assertOidcConfiguration();
+  assertSessionEncryptionKey();
   // Initialize database (if available)
   try {
     const { initializeDatabase, getConfigService } = await import('./services/databaseService');

@@ -1,13 +1,16 @@
 import type { NextFunction, Request, Response } from 'express';
 
 jest.mock('../services/oidcService', () => ({
+  loadOidcOperationContext: jest.fn().mockResolvedValue({ configuration: { issuer: 'https://idp.example' }, configurationFingerprint: 'fingerprint' }),
+  assertOidcBinding: jest.fn().mockResolvedValue(undefined),
+  isOidcEnabled: jest.fn().mockResolvedValue(true),
   createAuthorizationRequest: jest.fn(),
   exchangeAuthorizationCode: jest.fn(),
   getLogoutUrl: jest.fn(),
   getUserInfo: jest.fn(),
   revokeRefreshToken: jest.fn(),
   validateIdToken: jest.fn(),
-  OidcError: class OidcError extends Error {},
+  OidcError: class OidcError extends Error { constructor(message: string, public code = 'oidc_error') { super(message); } },
 }));
 jest.mock('../services/authSessionService', () => ({
   ...jest.requireActual('../services/authSessionService'),
@@ -28,6 +31,9 @@ import {
   saveLoginTransaction,
 } from '../services/authSessionService';
 import {
+  assertOidcBinding,
+  loadOidcOperationContext,
+  OidcError,
   createAuthorizationRequest,
   exchangeAuthorizationCode,
   getLogoutUrl,
@@ -76,7 +82,7 @@ describe('auth routes', () => {
     (saveLoginTransaction as jest.Mock).mockResolvedValue('tx');
     const response = mockResponse();
     await finalHandler('get', '/oidc/login')({ query: { next: nextParam } } as unknown as Request, response as unknown as Response, next);
-    expect(saveLoginTransaction).toHaveBeenCalledWith({ state: 's', nonce: 'n', codeVerifier: 'v', returnTo: expected });
+    expect(saveLoginTransaction).toHaveBeenCalledWith({ issuer: undefined, configurationFingerprint: undefined, state: 's', nonce: 'n', codeVerifier: 'v', returnTo: expected });
     expect(response.redirect).toHaveBeenCalledWith(302, 'https://idp.example/authorize');
   });
 
@@ -100,6 +106,12 @@ describe('auth routes', () => {
       next,
     );
     expect(response.redirect).toHaveBeenCalledWith(302, 'https://app.example/dashboard');
+    expect(loadOidcOperationContext).toHaveBeenCalledTimes(1);
+    const context = await (loadOidcOperationContext as jest.Mock).mock.results[0].value;
+    expect(exchangeAuthorizationCode).toHaveBeenCalledWith(context, 'c', 'v');
+    expect(validateIdToken).toHaveBeenCalledWith(context, 'i', 'n');
+    expect(getUserInfo).toHaveBeenCalledWith(context, 'a');
+    expect(createSession).toHaveBeenCalledWith(context, { sub: 'u', name: 'Usuária' }, 'r', 300);
   });
 
   it('ends a local session without contacting the OIDC provider', async () => {
@@ -123,4 +135,31 @@ describe('auth routes', () => {
     await finalHandler('get', '/me')({ auth: { sessionId: 'sid', session } } as unknown as Request, response as unknown as Response, next);
     expect(response.json).toHaveBeenCalledWith({ success: true, data: { ...session.user, provider } });
   });
+});
+
+describe('OIDC operation failures', () => {
+ beforeEach(() => { jest.clearAllMocks(); process.env.APP_ORIGIN = 'https://app.example'; });
+ it('redirects disabled login to not_configured', async () => {
+   (loadOidcOperationContext as jest.Mock).mockRejectedValueOnce(new OidcError('off', 'not_configured'));
+   const response = mockResponse();
+   await finalHandler('get', '/oidc/login')({ query: {} } as unknown as Request, response as unknown as Response, next);
+   expect(response.redirect).toHaveBeenCalledWith(302, 'https://app.example/login?auth_error=not_configured');
+ });
+ it('rejects changed callback binding before exchange', async () => {
+   (consumeLoginTransaction as jest.Mock).mockResolvedValueOnce({ state: 's', nonce: 'n', codeVerifier: 'v', issuer: 'https://old.example', configurationFingerprint: 'old' });
+   (assertOidcBinding as jest.Mock).mockRejectedValueOnce(new OidcError('changed', 'not_configured'));
+   const response = mockResponse();
+   const log = jest.spyOn(console, 'error').mockImplementation(() => {});
+   await finalHandler('get', '/oidc/callback')({ query: { code: 'c', state: 's' }, headers: {} } as unknown as Request, response as unknown as Response, next);
+   expect(exchangeAuthorizationCode).not.toHaveBeenCalled(); expect(getUserInfo).not.toHaveBeenCalled();
+   expect(response.redirect).toHaveBeenCalledWith(302, 'https://app.example/login?auth_error=not_configured'); log.mockRestore();
+ });
+ it('rejects changed logout binding before revocation', async () => {
+   (getSession as jest.Mock).mockResolvedValueOnce({ provider: 'oidc', user: { sub: 'u' }, refreshToken: 'r', accessTokenExpiresAt: 1 });
+   (assertOidcBinding as jest.Mock).mockRejectedValueOnce(new OidcError('changed', 'not_configured'));
+   const response = mockResponse();
+   await finalHandler('post', '/logout')({ auth: { sessionId: 'sid' } } as unknown as Request, response as unknown as Response, next);
+   expect(revokeRefreshToken).not.toHaveBeenCalled(); expect(getLogoutUrl).not.toHaveBeenCalled();
+   expect(response.clearCookie).toHaveBeenCalled();
+ });
 });
