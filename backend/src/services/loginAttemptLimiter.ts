@@ -12,10 +12,13 @@ const ipKey = (ip: string): string => `${PREFIX}ip:${ip}`;
 
 const countOf = async (key: string): Promise<number> => Number((await getRedisClient().get(key)) ?? 0);
 
+// INCR and EXPIRE run in one MULTI so a key can never exist without its TTL.
+// EXPIRE ... NX sets the window only when none exists, so a running window is never extended.
 const increment = async (key: string): Promise<void> => {
-  const redis = getRedisClient();
-  const total = await redis.incr(key);
-  if (total === 1) await redis.expire(key, LOGIN_WINDOW_SECONDS);
+  const results = await getRedisClient().multi().incr(key).expire(key, LOGIN_WINDOW_SECONDS, 'NX').exec();
+  if (!results) throw new Error('Login attempt counter transaction was aborted');
+  const failed = results.find(([error]) => error !== null);
+  if (failed?.[0]) throw failed[0];
 };
 
 export const isLoginBlocked = async (username: string, ip: string): Promise<boolean> => {
