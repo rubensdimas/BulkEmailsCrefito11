@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { timingSafeEqual } from 'crypto';
 import {
+  createLocalSession,
   createSession,
   consumeLoginTransaction,
   deleteSession,
@@ -26,11 +27,18 @@ import {
   requireAuthentication,
   requireTrustedOrigin,
   SESSION_COOKIE,
+  SESSION_COOKIE_MAX_AGE,
 } from '../middlewares/authentication';
+import { createLocalAuthController } from '../controllers/localAuthController';
+import { isLocalLoginEnabled } from '../config/localAuth';
+import { getLocalUserRepository } from '../services/databaseService';
+import { createLocalAuthService } from '../services/localAuthService';
+import { clearFailedLogins, isLoginBlocked, registerFailedLogin } from '../services/loginAttemptLimiter';
+import { verifyAgainstDummy, verifyPassword } from '../services/passwordHasher';
+import { sanitizeReturnTo } from '../utils/returnTo';
 
 const router = Router();
 const LOGIN_COOKIE_MAX_AGE = 5 * 60 * 1000;
-const SESSION_COOKIE_MAX_AGE = 8 * 60 * 60 * 1000;
 
 const matches = (left: string, right: string): boolean => {
   const a = Buffer.from(left);
@@ -40,13 +48,29 @@ const matches = (left: string, right: string): boolean => {
 
 const appOrigin = (): string => (process.env.APP_ORIGIN || '').replace(/\/$/, '');
 
-router.get('/oidc/login', async (_request: Request, response: Response, next) => {
+const localAuth = createLocalAuthController({
+  enabled: isLocalLoginEnabled,
+  // Built per request: the repository only exists after the database is initialized.
+  authenticate: (input) => createLocalAuthService({
+    users: getLocalUserRepository(),
+    attempts: { isBlocked: isLoginBlocked, registerFailure: registerFailedLogin, clear: clearFailedLogins },
+    passwords: { verify: verifyPassword, verifyDummy: verifyAgainstDummy },
+  }).authenticate(input),
+  createSession: createLocalSession,
+  deleteSession,
+});
+
+router.get('/options', localAuth.options);
+router.post('/local/login', requireTrustedOrigin, localAuth.login);
+
+router.get('/oidc/login', async (request: Request, response: Response, next) => {
   try {
     const authorization = await createAuthorizationRequest();
     const transactionId = await saveLoginTransaction({
       state: authorization.state,
       nonce: authorization.nonce,
       codeVerifier: authorization.codeVerifier,
+      returnTo: sanitizeReturnTo(request.query.next),
     });
     response.cookie(LOGIN_COOKIE, transactionId, cookieOptions(LOGIN_COOKIE_MAX_AGE));
     response.redirect(302, authorization.authorizationUrl);
@@ -58,7 +82,7 @@ router.get('/oidc/login', async (_request: Request, response: Response, next) =>
 router.get('/oidc/callback', async (request: Request, response: Response) => {
   const fail = (reason: string): void => {
     response.clearCookie(LOGIN_COOKIE, cookieOptions());
-    response.redirect(302, `${appOrigin()}/?auth_error=${encodeURIComponent(reason)}`);
+    response.redirect(302, `${appOrigin()}/login?auth_error=${encodeURIComponent(reason)}`);
   };
 
   try {
@@ -89,7 +113,7 @@ router.get('/oidc/callback', async (request: Request, response: Response) => {
     }
     const sessionId = await createSession(user, tokens.refresh_token, tokens.expires_in);
     response.cookie(SESSION_COOKIE, sessionId, cookieOptions(SESSION_COOKIE_MAX_AGE));
-    response.redirect(302, `${appOrigin()}/`);
+    response.redirect(302, `${appOrigin()}${sanitizeReturnTo(transaction.returnTo)}`);
   } catch (error) {
     if (error instanceof OidcError) {
       console.error('[OIDC] Callback failed:', {
@@ -106,7 +130,11 @@ router.get('/oidc/callback', async (request: Request, response: Response) => {
 });
 
 router.get('/me', requireAuthentication, (request: AuthenticatedRequest, response: Response) => {
-  response.status(200).json({ success: true, data: request.auth?.session.user });
+  const session = request.auth?.session;
+  response.status(200).json({
+    success: true,
+    data: session ? { ...session.user, provider: session.provider } : undefined,
+  });
 });
 
 router.post('/logout', requireAuthentication, requireTrustedOrigin, async (request: AuthenticatedRequest, response: Response, next) => {

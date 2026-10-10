@@ -3,6 +3,7 @@ import { AuthSession, getSession, refreshSessionIfNeeded } from '../services/aut
 
 export const SESSION_COOKIE = process.env.NODE_ENV === 'production' ? '__Host-bulkmail_session' : 'bulkmail_session';
 export const LOGIN_COOKIE = process.env.NODE_ENV === 'production' ? '__Host-bulkmail_oidc_login' : 'bulkmail_oidc_login';
+export const SESSION_COOKIE_MAX_AGE = 8 * 60 * 60 * 1000;
 
 export interface AuthenticatedRequest extends Request {
   auth?: { sessionId: string; session: AuthSession };
