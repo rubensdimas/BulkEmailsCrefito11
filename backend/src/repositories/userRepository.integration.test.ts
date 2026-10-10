@@ -194,14 +194,48 @@ describeDatabase('UserRepository access protection', () => {
   it('serializes concurrent demotion and disabling of exactly two active admins', async () => {
     const first = await repository.create({ username: 'first-admin', passwordHash: 'h' });
     const second = await repository.create({ username: 'second-admin', passwordHash: 'h' });
-    const results = await Promise.allSettled([
-      repository.updateAccess(first.id, { role: 'operator' }),
-      repository.updateAccess(second.id, { disabled: true }),
-    ]);
-    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
-    const rejected = results.find((result): result is PromiseRejectedResult => result.status === 'rejected');
-    expect(rejected?.reason).toBeInstanceOf(LastActiveAdminError);
-    expect(await database('users').where({ role: 'admin' }).whereNull('disabled_at')).toHaveLength(1);
+    // Dedicated single-connection pools keep the warmed backend PIDs bound to each call.
+    const clients = [knex({ ...database.client.config, pool: { min: 1, max: 1 } }),
+      knex({ ...database.client.config, pool: { min: 1, max: 1 } })];
+    const blocker = await database.transaction();
+    let pending: Promise<PromiseSettledResult<unknown>[]> | undefined;
+    try {
+      const pids = await Promise.all(clients.map(async (client) => {
+        const result = await client.raw('SELECT pg_backend_pid() AS pid');
+        return Number(result.rows[0].pid);
+      }));
+      expect(new Set(pids).size).toBe(2);
+      await blocker.raw('SELECT pg_advisory_xact_lock(420002)');
+      const blockerPid = Number((await blocker.raw('SELECT pg_backend_pid() AS pid')).rows[0].pid);
+      expect(pids).not.toContain(blockerPid);
+      pending = Promise.allSettled([
+        new UserRepository(clients[0]).updateAccess(first.id, { role: 'operator' }),
+        new UserRepository(clients[1]).setDisabled(second.id, true),
+      ]);
+      // Do not release until PostgreSQL proves both production transactions overlap
+      // and are waiting for the real advisory lock on their distinct connections.
+      const deadline = Date.now() + 3000;
+      let waiting: number[] = [];
+      do {
+        const locks = await database('pg_locks').select('pid').where({
+          locktype: 'advisory', classid: 0, objid: 420002, granted: false,
+        }).whereIn('pid', pids);
+        waiting = locks.map((lock) => Number(lock.pid));
+        if (waiting.length === 2) break;
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      } while (Date.now() < deadline);
+      expect(waiting.sort()).toEqual([...pids].sort());
+      await blocker.commit();
+      const results = await pending;
+      expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+      const rejected = results.find((result): result is PromiseRejectedResult => result.status === 'rejected');
+      expect(rejected?.reason).toBeInstanceOf(LastActiveAdminError);
+      expect(await database('users').where({ role: 'admin' }).whereNull('disabled_at')).toHaveLength(1);
+    } finally {
+      if (!blocker.isCompleted()) await blocker.rollback();
+      if (pending) await pending;
+      await Promise.all(clients.map((client) => client.destroy()));
+    }
   });
   it('CLI refuses disabling the last admin with a Portuguese error and nonzero exit', async () => {
     const admin = await repository.create({ username: 'only-admin', passwordHash: 'h' });
