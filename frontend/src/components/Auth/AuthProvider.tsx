@@ -1,10 +1,12 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Navigate, useLocation } from 'react-router-dom';
 import { AuthUser, getCurrentUser, logout as endSession } from '../../services/api';
 
 interface AuthContextValue {
   enabled: boolean;
   loading: boolean;
   user: AuthUser | null;
+  setUser: (user: AuthUser) => void;
   logout: () => Promise<void>;
 }
 
@@ -28,10 +30,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(async () => {
     if (!authEnabled) return;
     const { logoutUrl } = await endSession();
-    window.location.assign(logoutUrl || '/');
+    window.location.assign(logoutUrl || '/login');
   }, []);
 
-  const value = useMemo(() => ({ enabled: authEnabled, loading, user, logout }), [loading, user, logout]);
+  const value = useMemo(() => ({ enabled: authEnabled, loading, user, setUser, logout }), [loading, user, logout]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
@@ -41,30 +43,16 @@ export function useAuth(): AuthContextValue {
   return value;
 }
 
+export function AuthLoading() {
+  return <main className="min-h-screen bg-gray-50 flex items-center justify-center"><span className="sr-only">Autenticando</span></main>;
+}
+
 export function AuthGate({ children }: { children: ReactNode }) {
   const { enabled, loading, user } = useAuth();
-  const [failed, setFailed] = useState(false);
-
-  useEffect(() => {
-    if (!enabled || loading || user || failed) return;
-    const query = new URLSearchParams(window.location.search);
-    if (query.has('auth_error')) {
-      setFailed(true);
-      return;
-    }
-    window.location.assign('/api/auth/oidc/login');
-  }, [enabled, loading, user, failed]);
+  const location = useLocation();
 
   if (!enabled || user) return <>{children}</>;
-  if (failed) {
-    return (
-      <main className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
-        <div className="text-center">
-          <p className="text-gray-700">Não foi possível concluir a autenticação.</p>
-          <a className="mt-4 inline-flex px-4 py-2 text-sm font-medium text-white bg-primary-600 rounded-md hover:bg-primary-700" href="/api/auth/oidc/login">Entrar novamente</a>
-        </div>
-      </main>
-    );
-  }
-  return <main className="min-h-screen bg-gray-50 flex items-center justify-center"><span className="sr-only">Autenticando</span></main>;
+  if (loading) return <AuthLoading />;
+  const next = `${location.pathname}${location.search}`;
+  return <Navigate to={`/login?next=${encodeURIComponent(next)}`} replace />;
 }

@@ -1,6 +1,7 @@
 import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig, AxiosResponse } from 'axios';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
+const authEnabled = import.meta.env.VITE_AUTH_ENABLED === 'true';
 
 // Create axios instance
 const api: AxiosInstance = axios.create({
@@ -34,6 +35,13 @@ api.interceptors.response.use(
       const status = error.response.status;
       const data = error.response.data as { message?: string };
       console.error(`[API] Error ${status}:`, data.message || error.message);
+
+      // An expired session during use sends the user back to the login page.
+      const isAuthRequest = error.config?.url?.startsWith('/auth/') ?? false;
+      if (status === 401 && authEnabled && !isAuthRequest && window.location.pathname !== '/login') {
+        const next = `${window.location.pathname}${window.location.search}`;
+        window.location.assign(`/login?next=${encodeURIComponent(next)}`);
+      }
     } else if (error.request) {
       console.error('[API] No response received:', error.message);
     } else {
@@ -197,10 +205,17 @@ export interface ConfigResponse<T> {
   error?: string;
 }
 
+export type AuthProviderName = 'oidc' | 'local';
+
 export interface AuthUser {
   sub: string;
   name?: string;
   email?: string;
+  provider?: AuthProviderName;
+}
+
+export interface AuthOptions {
+  localLoginEnabled: boolean;
 }
 
 // ============= API Functions =============
@@ -296,6 +311,16 @@ export const getCurrentUser = async (): Promise<AuthUser> => {
 export const logout = async (): Promise<{ logoutUrl: string | null }> => {
   const response = await api.post<{ success: boolean; logoutUrl: string | null }>('/auth/logout');
   return { logoutUrl: response.data.logoutUrl };
+};
+
+export const getAuthOptions = async (): Promise<AuthOptions> => {
+  const response = await api.get<ConfigResponse<AuthOptions>>('/auth/options');
+  return response.data.data;
+};
+
+export const loginWithPassword = async (username: string, password: string): Promise<AuthUser> => {
+  const response = await api.post<ConfigResponse<AuthUser>>('/auth/local/login', { username, password });
+  return response.data.data;
 };
 
 // ============= Export =============
