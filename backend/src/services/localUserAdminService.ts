@@ -1,4 +1,4 @@
-import type { LocalUser, LocalUserStore } from '../repositories/localUserRepository';
+import type { LocalUser, LocalUserStore } from '../repositories/userRepository';
 import { normalizeUsername } from './localAuthService';
 import { validatePasswordPolicy } from './passwordHasher';
 
@@ -35,13 +35,13 @@ export const createLocalAdminService = (deps: LocalAdminDependencies) => {
       if (await deps.users.findByUsername(normalized)) {
         throw new LocalAdminError(`O usuário "${normalized}" já existe. Use reset-password para trocar a senha.`);
       }
-      return deps.users.create({ username: normalized, passwordHash: await deps.hash(password) });
+      return deps.users.create({ username: normalized, passwordHash: await deps.hash(password), role: 'admin', mustChangePassword: false });
     },
 
     async resetPassword(username: string, password: string): Promise<number> {
       const user = await existing(username);
       assertPassword(password);
-      await deps.users.updatePassword(user.id, await deps.hash(password));
+      await deps.users.updatePassword(user.id, await deps.hash(password), false);
       return deps.revokeSessions(user.id);
     },
 

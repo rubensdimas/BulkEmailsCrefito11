@@ -2,7 +2,13 @@ import type { NextFunction, Request, Response } from 'express';
 import { SESSION_COOKIE } from '../middlewares/authentication';
 import { createLocalAuthController } from './localAuthController';
 
-const admin = { id: 'user-1', username: 'admin', passwordHash: 'h', disabledAt: null, lastLoginAt: null };
+const admin = {
+  id: 'user-1', username: 'admin', passwordHash: 'h',
+  provider: 'local' as const, role: 'admin' as const,
+  oidcSub: null, oidcIssuer: null, credentialVersion: 0,
+  email: null, name: null, mustChangePassword: false,
+  disabledAt: null, lastLoginAt: null,
+};
 
 const setup = (enabled = true) => {
   const deps = {

@@ -1,4 +1,4 @@
-import type { LocalUser, LocalUserStore } from '../repositories/localUserRepository';
+import type { LocalUser, LocalUserStore, UserRole } from '../repositories/userRepository';
 import { createLocalAdminService, LocalAdminError } from './localUserAdminService';
 
 class InMemoryLocalUsers implements LocalUserStore {
@@ -14,14 +14,29 @@ class InMemoryLocalUsers implements LocalUserStore {
     return [...this.users.values()].find((user) => user.username === username) ?? null;
   }
 
-  async create(input: { username: string; passwordHash: string }): Promise<LocalUser> {
-    const user: LocalUser = { id: `id-${this.users.size + 1}`, ...input, disabledAt: null, lastLoginAt: null };
+  async create(input: { username: string; passwordHash: string; role?: UserRole; mustChangePassword?: boolean }): Promise<LocalUser> {
+    const user: LocalUser = {
+      id: `id-${this.users.size + 1}`, ...input, provider: 'local',
+      role: input.role ?? 'admin', mustChangePassword: input.mustChangePassword ?? false,
+      oidcSub: null, oidcIssuer: null, credentialVersion: 0,
+      email: null, name: null, disabledAt: null, lastLoginAt: null,
+    };
     this.users.set(user.id, user);
     return user;
   }
 
-  async updatePassword(id: string, passwordHash: string): Promise<void> {
+  async updatePassword(id: string, passwordHash: string, mustChangePassword = false): Promise<void> {
     this.byId(id).passwordHash = passwordHash;
+    this.byId(id).mustChangePassword = mustChangePassword;
+    this.byId(id).credentialVersion++;
+  }
+
+  async changePasswordIfCurrent(id: string, expectedHash: string, expectedVersion: number, nextHash: string): Promise<boolean> {
+    const user = this.byId(id);
+    if (user.passwordHash !== expectedHash || user.credentialVersion !== expectedVersion) return false;
+    user.passwordHash = nextHash;
+    user.mustChangePassword = false;
+    return true;
   }
 
   async setDisabled(id: string, disabled: boolean): Promise<void> {
@@ -45,6 +60,7 @@ describe('localUserAdminService', () => {
     const { users, service } = setup();
     const created = await service.create('  Admin ', 'uma senha longa');
     expect(created.username).toBe('admin');
+    expect(created).toMatchObject({ role: 'admin', mustChangePassword: false });
     expect((await users.findByUsername('admin'))?.passwordHash).toBe('hashed:uma senha longa');
   });
 
@@ -67,8 +83,10 @@ describe('localUserAdminService', () => {
   it('reset-password revokes active sessions', async () => {
     const { users, revokeSessions, service } = setup();
     const created = await service.create('admin', 'uma senha longa');
+    created.mustChangePassword = true;
     await expect(service.resetPassword('admin', 'nova senha longa')).resolves.toBe(2);
     expect((await users.findByUsername('admin'))?.passwordHash).toBe('hashed:nova senha longa');
+    expect(created).toMatchObject({ mustChangePassword: false, credentialVersion: 1 });
     expect(revokeSessions).toHaveBeenCalledWith(created.id);
   });
 

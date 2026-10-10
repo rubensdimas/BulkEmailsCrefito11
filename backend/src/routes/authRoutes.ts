@@ -31,7 +31,7 @@ import {
 } from '../middlewares/authentication';
 import { createLocalAuthController } from '../controllers/localAuthController';
 import { isLocalLoginEnabled } from '../config/localAuth';
-import { getLocalUserRepository } from '../services/databaseService';
+import { getUserRepository } from '../services/databaseService';
 import { createLocalAuthService } from '../services/localAuthService';
 import { clearFailedLogins, isLoginBlocked, registerFailedLogin } from '../services/loginAttemptLimiter';
 import { verifyAgainstDummy, verifyPassword } from '../services/passwordHasher';
@@ -52,7 +52,7 @@ const localAuth = createLocalAuthController({
   enabled: isLocalLoginEnabled,
   // Built per request: the repository only exists after the database is initialized.
   authenticate: (input) => createLocalAuthService({
-    users: getLocalUserRepository(),
+    users: getUserRepository(),
     attempts: { isBlocked: isLoginBlocked, registerFailure: registerFailedLogin, clear: clearFailedLogins },
     passwords: { verify: verifyPassword, verifyDummy: verifyAgainstDummy },
   }).authenticate(input),

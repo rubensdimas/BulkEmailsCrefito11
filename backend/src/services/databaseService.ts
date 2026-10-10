@@ -20,15 +20,15 @@ import {
   createConfigService,
 } from "./configService";
 import {
-  LocalUserRepository,
-  createLocalUserRepository,
-} from "../repositories/localUserRepository";
+  UserRepository,
+  createUserRepository,
+} from "../repositories/userRepository";
 
 // Singleton instances
 let jobRepository: JobRepository | null = null;
 let emailLogRepository: EmailLogRepository | null = null;
 let configService: ConfigService | null = null;
-let localUserRepository: LocalUserRepository | null = null;
+let userRepository: UserRepository | null = null;
 
 /**
  * Initialize database and repositories
@@ -39,7 +39,7 @@ export const initializeDatabase = async (): Promise<void> => {
     jobRepository = createJobRepository(db);
     emailLogRepository = createEmailLogRepository(db);
     configService = createConfigService(db);
-    localUserRepository = createLocalUserRepository(db);
+    userRepository = createUserRepository(db);
     console.log("✅ Database and repositories initialized");
   } catch (error) {
     console.error("❌ Failed to initialize database:", error);
@@ -84,15 +84,15 @@ export const getConfigService = (): ConfigService => {
 };
 
 /**
- * Get LocalUserRepository instance
+ * Get UserRepository instance
  */
-export const getLocalUserRepository = (): LocalUserRepository => {
-  if (!localUserRepository) {
+export const getUserRepository = (): UserRepository => {
+  if (!userRepository) {
     throw new Error(
       "Database not initialized. Call initializeDatabase() first.",
     );
   }
-  return localUserRepository;
+  return userRepository;
 };
 
 /**
@@ -110,7 +110,7 @@ export const shutdownDatabase = async (): Promise<void> => {
   jobRepository = null;
   emailLogRepository = null;
   configService = null;
-  localUserRepository = null;
+  userRepository = null;
 };
 
 // Export for backward compatibility

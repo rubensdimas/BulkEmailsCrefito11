@@ -1,7 +1,10 @@
-import type { LocalUser } from '../repositories/localUserRepository';
+import type { LocalUser } from '../repositories/userRepository';
 import { createLocalAuthService, LocalAuthDependencies } from './localAuthService';
 
 const activeAdmin: LocalUser = {
+  provider: 'local', role: 'admin',
+  oidcSub: null, oidcIssuer: null, credentialVersion: 0,
+  email: null, name: null, mustChangePassword: false,
   id: 'user-1',
   username: 'admin',
   passwordHash: 'hash:correct password',

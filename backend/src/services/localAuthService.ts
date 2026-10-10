@@ -1,4 +1,4 @@
-import type { LocalUser, LocalUserStore } from '../repositories/localUserRepository';
+import type { LocalUser, LocalUserStore } from '../repositories/userRepository';
 
 export interface LocalAuthInput {
   username: string;

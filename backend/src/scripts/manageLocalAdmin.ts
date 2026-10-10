@@ -6,7 +6,7 @@ import { createInterface } from 'readline';
 import { Writable } from 'stream';
 import { closeDatabase, initDatabase } from '../config/database';
 import { closeRedisConnection } from '../config/redis';
-import { createLocalUserRepository } from '../repositories/localUserRepository';
+import { createUserRepository } from '../repositories/userRepository';
 import { revokeLocalUserSessions } from '../services/authSessionService';
 import { createLocalAdminService, LocalAdminError } from '../services/localUserAdminService';
 import { hashPassword } from '../services/passwordHasher';
@@ -56,7 +56,7 @@ const main = async (): Promise<void> => {
   const db = await initDatabase();
   try {
     const admin = createLocalAdminService({
-      users: createLocalUserRepository(db),
+      users: createUserRepository(db),
       hash: hashPassword,
       revokeSessions: revokeLocalUserSessions,
     });
