@@ -146,6 +146,58 @@ O frontend está fixado em `react-router-dom@7.18.2`. A auditoria npm atual asso
 
 Não faça downgrade automático do React Router para eliminar o alerta: versões anteriores reintroduzem avisos de redirect já corrigidos. Reavalie e atualize para uma versão sem alertas quando ela estiver disponível. Esta exceção deixa de ser válida imediatamente se o projeto adotar SSR, RSC ou Server Actions.
 
+## Usuários locais (login por senha)
+
+O login por usuário e senha convive com o login da intranet. Os comandos rodam
+dentro de um container do backend, **no nó onde a task está em execução**:
+
+```bash
+docker service ps bulkmail_backend --filter desired-state=running --format '{{.Node}}'
+# no nó indicado:
+backend_container=$(docker ps --filter name=bulkmail_backend -q | head -1)
+```
+
+Criar o admin inicial (a senha é pedida duas vezes, sem eco; mínimo 12 caracteres):
+
+```bash
+docker exec -it "$backend_container" npm run user:admin -- create --username=admin
+```
+
+Trocar a senha (encerra as sessões abertas desse usuário):
+
+```bash
+docker exec -it "$backend_container" npm run user:admin -- reset-password --username=admin
+```
+
+Desativar ou reativar:
+
+```bash
+docker exec -it "$backend_container" npm run user:admin -- disable --username=admin
+docker exec -it "$backend_container" npm run user:admin -- enable --username=admin
+```
+
+Para desligar totalmente o login por senha, defina `LOCAL_LOGIN_ENABLED=false`
+em `deploy/production.env` e execute `./scripts/production/deploy.sh`.
+
+Tentativas de login local aparecem nos logs com o prefixo `[LocalAuth]`:
+
+```bash
+docker service logs --since 1h bulkmail_backend | grep '\[LocalAuth\]'
+```
+
+### IP real do cliente
+
+O bloqueio de tentativas usa o IP do cliente. Depois do primeiro deploy, faça
+uma tentativa com senha errada a partir de uma máquina conhecida e confira o
+campo `ip` do log `[LocalAuth]`:
+
+- IP público/da rede do usuário: configuração correta.
+- IP interno do Docker (por exemplo `10.0.x.x`) igual para todos: ajuste
+  `TRUST_PROXY_HOPS=2` em `deploy/production.env` e refaça o deploy. Se mesmo
+  assim o IP continuar interno, o Traefik está recebendo o tráfego pela rede
+  ingress do Swarm, que oculta o IP de origem; publique as portas do Traefik em
+  `mode: host` antes de confiar no bloqueio por IP.
+
 ## Backup sob demanda
 
 ```bash
