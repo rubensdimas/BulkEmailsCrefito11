@@ -18,7 +18,14 @@ describe('trustProxyHops', () => {
     expect(trustProxyHops()).toBe(2);
   });
 
-  it.each(['abc', '-1', '1.5', ''])('falls back to one proxy for %p', (value) => {
+  it('accepts zero and trims whitespace', () => {
+    process.env.TRUST_PROXY_HOPS = '0';
+    expect(trustProxyHops()).toBe(0);
+    process.env.TRUST_PROXY_HOPS = ' 2 ';
+    expect(trustProxyHops()).toBe(2);
+  });
+
+  it.each(['abc', '-1', '1.5', '', ' ', '1e1', '0x1'])('falls back to one proxy for %p', (value) => {
     process.env.TRUST_PROXY_HOPS = value;
     expect(trustProxyHops()).toBe(1);
   });

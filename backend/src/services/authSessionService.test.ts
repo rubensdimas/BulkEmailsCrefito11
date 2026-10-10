@@ -14,6 +14,14 @@ const mockRedis = {
     return 1;
   }),
   smembers: jest.fn(async (key: string) => [...(mockSets.get(key) ?? [])]),
+  srem: jest.fn(async (key: string, ...members: string[]) => {
+    const set = mockSets.get(key);
+    if (!set) return 0;
+    let removed = 0;
+    for (const member of members) if (set.delete(member)) removed += 1;
+    if (set.size === 0) mockSets.delete(key);
+    return removed;
+  }),
   expire: jest.fn(async () => 1),
 };
 
@@ -85,6 +93,23 @@ describe('authSessionService', () => {
     await expect(getSession(first)).resolves.toBeNull();
     await expect(getSession(second)).resolves.toBeNull();
     await expect(getSession(other)).resolves.not.toBeNull();
+  });
+
+  it('removes only the read ids from the index so concurrent sessions stay indexed', async () => {
+    const first = await createLocalSession(localUser, 'user-1');
+    const indexKey = [...mockSets.keys()].find((key) => mockSets.get(key)!.has(first))!;
+    mockRedis.del.mockClear();
+    mockRedis.srem.mockClear();
+    mockRedis.smembers.mockImplementationOnce(async (key: string) => {
+      const ids = [...(mockSets.get(key) ?? [])];
+      mockSets.get(key)!.add('late-session');
+      return ids;
+    });
+
+    await expect(revokeLocalUserSessions('user-1')).resolves.toBe(1);
+    expect(mockRedis.srem).toHaveBeenCalledWith(indexKey, first);
+    expect(mockRedis.del.mock.calls.flat()).not.toContain(indexKey);
+    expect([...mockSets.get(indexKey)!]).toEqual(['late-session']);
   });
 
   it('keeps the return path in the OIDC login transaction', async () => {

@@ -85,7 +85,7 @@ services:
       CREFITO11_LOGO_PATH: /assets/logos/CREFITO 11 - Marca - Neg 2 Completa.png
       CREFITO11_LOGO_URL: ${CREFITO11_LOGO_URL:?CREFITO11_LOGO_URL is required}
       LOCAL_LOGIN_ENABLED: ${LOCAL_LOGIN_ENABLED:-true}
-      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-1}
+      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-2}
     secrets: &backend_secrets
       - postgres_password
       - redis_password

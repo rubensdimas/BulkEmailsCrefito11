@@ -7,9 +7,10 @@ const isProduction = process.env.NODE_ENV === 'production';
 
 // Production chain is Traefik -> Nginx -> backend; each hop appends to X-Forwarded-For.
 export const trustProxyHops = (): number => {
-  const raw = process.env.TRUST_PROXY_HOPS;
-  const hops = raw === undefined || raw === '' ? 1 : Number(raw);
-  return Number.isInteger(hops) && hops >= 0 ? hops : 1;
+  const raw = process.env.TRUST_PROXY_HOPS?.trim();
+  if (raw === undefined || !/^\d+$/.test(raw)) return 1;
+  const hops = Number(raw);
+  return Number.isSafeInteger(hops) ? hops : 1;
 };
 
 export const configureSecurity = (app: Express): void => {

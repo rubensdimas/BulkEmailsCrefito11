@@ -29,6 +29,10 @@ export const parseArguments = (argv: string[]): { command: LocalAdminCommand; us
 const readPasswordTwice = async (): Promise<string> => {
   const silent = new Writable({ write: (_chunk, _encoding, callback) => callback() });
   const reader = createInterface({ input: process.stdin, output: silent, terminal: Boolean(process.stdin.isTTY) });
+  reader.on('SIGINT', () => {
+    reader.close();
+    process.exit(130);
+  });
   const lines = reader[Symbol.asyncIterator]();
   const ask = async (label: string): Promise<string> => {
     process.stdout.write(label);

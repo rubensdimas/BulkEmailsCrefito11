@@ -187,16 +187,26 @@ docker service logs --since 1h bulkmail_backend | grep '\[LocalAuth\]'
 
 ### IP real do cliente
 
-O bloqueio de tentativas usa o IP do cliente. Depois do primeiro deploy, faça
-uma tentativa com senha errada a partir de uma máquina conhecida e confira o
-campo `ip` do log `[LocalAuth]`:
+O bloqueio de tentativas usa o IP do cliente. A cadeia de produção é
+Traefik → Nginx → backend, e cada salto acrescenta um IP ao `X-Forwarded-For`;
+por isso o valor esperado é `TRUST_PROXY_HOPS=2` (Traefik + Nginx), que já é o
+padrão de `deploy/production.env.example` e do `docker-compose.prod.yml`. Com
+apenas 1 salto, o backend enxergaria sempre o IP do Traefik e o bloqueio por IP
+viraria um bloqueio global.
 
-- IP público/da rede do usuário: configuração correta.
-- IP interno do Docker (por exemplo `10.0.x.x`) igual para todos: ajuste
-  `TRUST_PROXY_HOPS=2` em `deploy/production.env` e refaça o deploy. Se mesmo
-  assim o IP continuar interno, o Traefik está recebendo o tráfego pela rede
-  ingress do Swarm, que oculta o IP de origem; publique as portas do Traefik em
-  `mode: host` antes de confiar no bloqueio por IP.
+Depois do primeiro deploy, faça uma tentativa com senha errada a partir de uma
+máquina conhecida e confirme que o campo `ip` do log `[LocalAuth]` é o IP real
+do cliente.
+
+Pré-condição: o Traefik **não** pode confiar em `X-Forwarded-For` enviado pelo
+cliente (sem `forwardedHeaders.insecure` e sem `trustedIPs` amplos no
+entrypoint). Caso contrário, qualquer cliente poderia forjar o próprio IP e
+contornar o bloqueio.
+
+Se o IP registrado continuar sendo interno do Docker (por exemplo `10.0.x.x`) e
+igual para todos, o Traefik está recebendo o tráfego pela rede ingress do Swarm,
+que oculta o IP de origem; publique as portas do Traefik em `mode: host` antes
+de confiar no bloqueio por IP.
 
 ## Backup sob demanda
 

@@ -105,8 +105,11 @@ export const createLocalSession = async (user: AuthenticatedUser, localUserId: s
 export const revokeLocalUserSessions = async (localUserId: string): Promise<number> => {
   const redis = getRedisClient();
   const ids = await redis.smembers(localUserSessionsKey(localUserId));
-  if (ids.length > 0) await redis.del(...ids.map(sessionKey));
-  await redis.del(localUserSessionsKey(localUserId));
+  if (ids.length > 0) {
+    await redis.del(...ids.map(sessionKey));
+    // Remove only what was read: a session indexed concurrently keeps its entry.
+    await redis.srem(localUserSessionsKey(localUserId), ...ids);
+  }
   return ids.length;
 };
 
