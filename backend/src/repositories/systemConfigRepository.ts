@@ -5,6 +5,7 @@
 import type { Knex } from 'knex';
 import {
   SystemConfig,
+  ConfigValue,
   ConfigRow,
   CreateConfigInput,
   configFromRow,
@@ -31,6 +32,14 @@ export class SystemConfigRepository {
     
     if (!row) return null;
     return configFromRow(row as unknown as ConfigRow);
+  }
+
+  /** Insert a fully prepared configuration without overwriting an existing value. */
+  async insertIfAbsent(key: string, value: ConfigValue): Promise<boolean> {
+    const rows = await this.db(this.tableName).insert({
+      key, value: JSON.stringify(value), created_at: new Date(), updated_at: new Date(),
+    }).onConflict('key').ignore().returning('id');
+    return rows.length > 0;
   }
 
   /**

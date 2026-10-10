@@ -1,8 +1,8 @@
 import { sendEmail } from "./processors";
-import { isDatabaseReady } from "../services/databaseService";
+import { getConfigService } from "../services/databaseService";
 import { sendViaMailgrid } from "../services/mailgridService";
 
-jest.mock("../services/mailgridService", () => ({ sendViaMailgrid: jest.fn() }));
+jest.mock("../services/mailgridService", () => ({ ...jest.requireActual("../services/mailgridService"), sendViaMailgrid: jest.fn() }));
 
 jest.mock("../services/databaseService", () => ({
   isDatabaseReady: jest.fn(),
@@ -33,7 +33,9 @@ describe("sendEmail institutional template", () => {
     process.env.MAILGRID_SENDER_NAME = "BulkMail Test";
     process.env.CREFITO11_LOGO_URL =
       "https://bulkmail.example.com/api/assets/crefito11-email-logo.png";
-    (isDatabaseReady as jest.Mock).mockReturnValue(false);
+    (getConfigService as jest.Mock).mockReturnValue({ getMailgridConfig: jest.fn().mockResolvedValue({
+      host: 'smtp.database.invalid', user: 'db-user', pass: 'db-secret', from_address: 'database@test.invalid', from_name: 'BulkMail Test',
+    }) });
     (sendViaMailgrid as jest.Mock).mockResolvedValue({ messageId: "mailgrid-1" });
   });
 
@@ -59,7 +61,7 @@ describe("sendEmail institutional template", () => {
     });
 
     expect(sendViaMailgrid).toHaveBeenCalledWith(
-      expect.objectContaining({ host: "smtp.test.invalid" }),
+      expect.objectContaining({ host: "smtp.database.invalid" }),
       expect.objectContaining({
         to: "dest@example.com",
         subject: "Aviso",

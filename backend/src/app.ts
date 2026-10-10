@@ -105,11 +105,12 @@ const startServer = async (): Promise<Server> => {
   assertOidcConfiguration();
   // Initialize database (if available)
   try {
-    const { initializeDatabase } = await import('./services/databaseService');
+    const { initializeDatabase, getConfigService } = await import('./services/databaseService');
     await initializeDatabase();
-  } catch (error) {
-    if (process.env.NODE_ENV === 'production') throw error;
-    console.warn('⚠️  Database not available in development');
+    await getConfigService().importFromEnvironment();
+  } catch {
+    console.error('Database configuration initialization failed');
+    throw new Error('Database configuration initialization failed');
   }
 
   try {

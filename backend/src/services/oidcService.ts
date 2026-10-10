@@ -7,6 +7,8 @@ import {
   timingSafeEqual,
   verify,
 } from 'crypto';
+import { getSessionEncryptionKey, OidcError } from './oidcConfiguration';
+export { getSessionEncryptionKey, OidcError } from './oidcConfiguration';
 import { readFileSync } from 'fs';
 import { isAbsolute, resolve } from 'path';
 
@@ -68,17 +70,6 @@ interface OidcConfiguration {
 const DISCOVERY_TTL_MS = 5 * 60 * 1000;
 const TOKEN_REFRESH_SKEW_MS = 60 * 1000;
 let metadataCache: { value: OidcMetadata; expiresAt: number; cacheKey: string } | null = null;
-
-export class OidcError extends Error {
-  constructor(
-    message: string,
-    public readonly code: string = 'oidc_error',
-    public readonly providerStatus?: number,
-    public readonly providerError?: string,
-  ) {
-    super(message);
-  }
-}
 
 const base64Url = (value: Buffer): string => value.toString('base64url');
 
@@ -377,13 +368,6 @@ export const revokeRefreshToken = async (refreshToken: string): Promise<void> =>
 };
 
 export const getLogoutUrl = async (): Promise<string | null> => (await getOidcMetadata()).end_session_endpoint || null;
-
-const getSessionEncryptionKey = (): Buffer => {
-  const raw = getSecret('OIDC_SESSION_ENCRYPTION_KEY');
-  const key = /^[a-f0-9]{64}$/i.test(raw) ? Buffer.from(raw, 'hex') : Buffer.from(raw, 'base64');
-  if (key.length !== 32) throw new OidcError('OIDC_SESSION_ENCRYPTION_KEY must contain exactly 32 bytes', 'configuration_error');
-  return key;
-};
 
 export const encryptRefreshToken = (value: string): string => {
   const iv = randomBytes(12);
