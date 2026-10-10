@@ -38,6 +38,7 @@ import { getUserRepository } from '../services/databaseService';
 import { createLocalAuthService } from '../services/localAuthService';
 import { clearFailedLogins, isLoginBlocked, registerFailedLogin } from '../services/loginAttemptLimiter';
 import { verifyAgainstDummy, verifyPassword } from '../services/passwordHasher';
+import { toAccountView } from '../services/accountService';
 import { sanitizeReturnTo } from '../utils/returnTo';
 
 const router = Router();
@@ -121,6 +122,10 @@ router.get('/oidc/callback', async (request: Request, response: Response) => {
       fail('invalid_identity');
       return;
     }
+    const users = getUserRepository();
+    const account = await users.upsertOidcUser({ issuer: context.configuration.issuer, sub: user.sub, name: user.name, email: user.email });
+    if (account.disabledAt) { fail('unauthorized'); return; }
+    await users.recordLogin(account.id);
     const sessionId = await createSession(context, user, tokens.refresh_token, tokens.expires_in);
     response.cookie(SESSION_COOKIE, sessionId, cookieOptions(SESSION_COOKIE_MAX_AGE));
     response.redirect(302, `${appOrigin()}${sanitizeReturnTo(transaction.returnTo)}`);
@@ -140,10 +145,10 @@ router.get('/oidc/callback', async (request: Request, response: Response) => {
 });
 
 router.get('/me', requireAuthentication, (request: AuthenticatedRequest, response: Response) => {
-  const session = request.auth?.session;
+  const auth = request.auth;
   response.status(200).json({
     success: true,
-    data: session ? { ...session.user, provider: session.provider } : undefined,
+    data: auth ? toAccountView(auth.session, auth.account) : undefined,
   });
 });
 

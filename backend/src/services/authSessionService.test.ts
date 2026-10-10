@@ -73,23 +73,28 @@ describe('authSessionService', () => {
     await expect(getSession('odd')).resolves.toBeNull();
   });
 
+  it.each([null, -1, 0.5, '0'])('rejects malformed local credential version %p', async (credentialVersion) => {
+    mockStrings.set('oidc:session:malformed', JSON.stringify({ provider: 'local', localUserId: 'user-1', user: localUser, credentialVersion }));
+    await expect(getSession('malformed')).resolves.toBeNull();
+  });
+
   it('round-trips a local session', async () => {
-    const id = await createLocalSession(localUser, 'user-1');
-    await expect(getSession(id)).resolves.toEqual({ provider: 'local', user: localUser, localUserId: 'user-1' });
+    const id = await createLocalSession(localUser, 'user-1', 0);
+    await expect(getSession(id)).resolves.toEqual({ provider: 'local', user: localUser, localUserId: 'user-1', credentialVersion: 0 });
     expect(mockRedis.set).toHaveBeenCalledWith(`oidc:session:${id}`, expect.any(String), 'EX', 8 * 60 * 60);
   });
 
   it('never refreshes a local session through OIDC', async () => {
-    const id = await createLocalSession(localUser, 'user-1');
+    const id = await createLocalSession(localUser, 'user-1', 0);
     const session = await getSession(id);
     await expect(refreshSessionIfNeeded(id, session!)).resolves.toBe(session);
     expect(refreshOidcTokens).not.toHaveBeenCalled();
   });
 
   it('revokes every session of a local user', async () => {
-    const first = await createLocalSession(localUser, 'user-1');
-    const second = await createLocalSession(localUser, 'user-1');
-    const other = await createLocalSession({ sub: 'local:user-2', name: 'outro' }, 'user-2');
+    const first = await createLocalSession(localUser, 'user-1', 0);
+    const second = await createLocalSession(localUser, 'user-1', 0);
+    const other = await createLocalSession({ sub: 'local:user-2', name: 'outro' }, 'user-2', 0);
 
     await expect(revokeLocalUserSessions('user-1')).resolves.toBe(2);
     await expect(getSession(first)).resolves.toBeNull();
@@ -98,7 +103,7 @@ describe('authSessionService', () => {
   });
 
   it('removes only the read ids from the index so concurrent sessions stay indexed', async () => {
-    const first = await createLocalSession(localUser, 'user-1');
+    const first = await createLocalSession(localUser, 'user-1', 0);
     const indexKey = [...mockSets.keys()].find((key) => mockSets.get(key)!.has(first))!;
     mockRedis.del.mockClear();
     mockRedis.srem.mockClear();

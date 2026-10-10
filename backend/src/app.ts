@@ -23,7 +23,7 @@ import {
   uploadLimiter,
   webhookLimiter,
 } from './middlewares/security';
-import { requireAuthentication, requireTrustedOrigin } from './middlewares/authentication';
+import { requireAdmin, requireAuthentication, requirePasswordCurrent, requireTrustedOrigin } from './middlewares/authentication';
 import { assertSessionEncryptionKey } from './services/oidcService';
 import { getDatabase } from './config/database';
 import { getRedisClient, closeRedisConnection } from './config/redis';
@@ -85,14 +85,14 @@ app.get('/api/health/ready', readinessHandler);
 app.get('/api/health', readinessHandler);
 
 // Every remaining API route is an authenticated administrative operation.
-app.use('/api', requireAuthentication, requireTrustedOrigin);
+app.use('/api', requireAdmin, requireAuthentication, requirePasswordCurrent, requireTrustedOrigin);
 
 // API Routes
 app.use('/api/upload', uploadLimiter, uploadRoutes);
 app.use('/api/send', sendLimiter, sendRoutes);
 app.use('/api/status', statusRoutes);
 app.use('/api/jobs', jobRoutes);
-app.use('/api/config', configLimiter, configRoutes);
+app.use('/api/config', requireAdmin, configLimiter, configRoutes);
 
 // Error handling
 app.use(httpErrorHandler);

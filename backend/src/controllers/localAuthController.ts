@@ -1,5 +1,6 @@
 import { NextFunction, Request, Response } from 'express';
 import { cookieOptions, getCookie, SESSION_COOKIE, SESSION_COOKIE_MAX_AGE } from '../middlewares/authentication';
+import { toAccountView } from '../services/accountService';
 import type { AuthenticatedUser } from '../services/authSessionService';
 import type { LocalAuthInput, LocalAuthResult } from '../services/localAuthService';
 
@@ -11,7 +12,7 @@ export interface LocalAuthControllerDependencies {
   enabled: () => boolean;
   oidcEnabled: () => Promise<boolean>;
   authenticate: (input: LocalAuthInput) => Promise<LocalAuthResult>;
-  createSession: (user: AuthenticatedUser, localUserId: string) => Promise<string>;
+  createSession: (user: AuthenticatedUser, localUserId: string, credentialVersion: number) => Promise<string>;
   deleteSession: (sessionId: string | undefined) => Promise<void>;
 }
 
@@ -53,9 +54,9 @@ export const createLocalAuthController = (deps: LocalAuthControllerDependencies)
 
       const user: AuthenticatedUser = { sub: `local:${result.user.id}`, name: result.user.username };
       await deps.deleteSession(getCookie(request, SESSION_COOKIE));
-      const sessionId = await deps.createSession(user, result.user.id);
+      const sessionId = await deps.createSession(user, result.user.id, result.credentialVersion);
       response.cookie(SESSION_COOKIE, sessionId, cookieOptions(SESSION_COOKIE_MAX_AGE));
-      response.status(200).json({ success: true, data: { ...user, provider: 'local' } });
+      response.status(200).json({ success: true, data: toAccountView({ provider: 'local', user, localUserId: result.user.id, credentialVersion: result.credentialVersion }, result.user) });
     } catch (error) {
       next(error);
     }

@@ -75,7 +75,7 @@ describe('localAuthController', () => {
 
   it('replaces any previous session and sets the session cookie on success', async () => {
     const { controller, deps, response, next } = setup();
-    deps.authenticate.mockResolvedValue({ ok: true, user: admin });
+    deps.authenticate.mockResolvedValue({ ok: true, user: admin, credentialVersion: 0 });
     await controller.login(
       request({ username: 'Admin', password: 'correct password' }, `${SESSION_COOKIE}=old-session`),
       response as unknown as Response,
@@ -83,12 +83,12 @@ describe('localAuthController', () => {
     );
     expect(deps.authenticate).toHaveBeenCalledWith({ username: 'Admin', password: 'correct password', ip: '203.0.113.7' });
     expect(deps.deleteSession).toHaveBeenCalledWith('old-session');
-    expect(deps.createSession).toHaveBeenCalledWith({ sub: 'local:user-1', name: 'admin' }, 'user-1');
+    expect(deps.createSession).toHaveBeenCalledWith({ sub: 'local:user-1', name: 'admin' }, 'user-1', 0);
     expect(response.cookie).toHaveBeenCalledWith(SESSION_COOKIE, 'new-session', expect.objectContaining({ httpOnly: true }));
     expect(response.status).toHaveBeenCalledWith(200);
     expect(response.json).toHaveBeenCalledWith({
       success: true,
-      data: { sub: 'local:user-1', name: 'admin', provider: 'local' },
+      data: { userId: 'user-1', sub: 'local:user-1', name: 'admin', provider: 'local', role: 'admin', mustChangePassword: false },
     });
   });
 

@@ -1,3 +1,5 @@
+const mockUsers = { upsertOidcUser: jest.fn(), recordLogin: jest.fn() };
+jest.mock('../services/databaseService', () => ({ getUserRepository: () => mockUsers }));
 const mockRedisDelete = jest.fn().mockResolvedValue(1);
 jest.mock('../config/redis', () => ({ getRedisClient: () => ({ del: mockRedisDelete }) }));
 import type { NextFunction, Request, Response } from 'express';
@@ -69,6 +71,7 @@ describe('auth routes', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     process.env.APP_ORIGIN = 'https://app.example';
+    mockUsers.upsertOidcUser.mockResolvedValue({ id: 'acc', disabledAt: null });
   });
 
   it('protects local login with the trusted origin check', () => {
@@ -110,6 +113,8 @@ describe('auth routes', () => {
       next,
     );
     expect(response.redirect).toHaveBeenCalledWith(302, 'https://app.example/dashboard');
+    expect(mockUsers.upsertOidcUser).toHaveBeenCalledWith({ issuer: 'https://idp.example', sub: 'u', name: 'Usuária', email: undefined });
+    expect(mockUsers.recordLogin).toHaveBeenCalledWith('acc');
     expect(loadOidcOperationContext).toHaveBeenCalledTimes(1);
     const context = await (loadOidcOperationContext as jest.Mock).mock.results[0].value;
     expect(exchangeAuthorizationCode).toHaveBeenCalledWith(context, 'c', 'v');
@@ -136,8 +141,8 @@ describe('auth routes', () => {
     [{ provider: 'oidc', user: { sub: 'u' }, refreshToken: 'r', accessTokenExpiresAt: 1 }, 'oidc'],
   ])('reports the session provider on /me', async (session, provider) => {
     const response = mockResponse();
-    await finalHandler('get', '/me')({ auth: { sessionId: 'sid', session } } as unknown as Request, response as unknown as Response, next);
-    expect(response.json).toHaveBeenCalledWith({ success: true, data: { ...session.user, provider } });
+    await finalHandler('get', '/me')({ auth: { sessionId: 'sid', session, account: { id: 'acc', provider, role: 'operator', name: 'name' in session.user ? session.user.name : undefined, mustChangePassword: false } } } as unknown as Request, response as unknown as Response, next);
+    expect(response.json).toHaveBeenCalledWith({ success: true, data: { userId: 'acc', ...session.user, provider, role: 'operator', mustChangePassword: false } });
   });
 });
 
@@ -194,4 +199,18 @@ describe('real authentication route chain', () => {
     expect(exchangeAuthorizationCode).not.toHaveBeenCalled();
     expect(getUserInfo).not.toHaveBeenCalled();
   });
+});
+
+it('refuses disabled OIDC account before creating session', async () => {
+  jest.clearAllMocks();
+  mockUsers.upsertOidcUser.mockResolvedValueOnce({ id: 'acc', disabledAt: new Date() });
+  (consumeLoginTransaction as jest.Mock).mockResolvedValue({ state: 's', nonce: 'n', codeVerifier: 'v' });
+  (exchangeAuthorizationCode as jest.Mock).mockResolvedValue({ refresh_token: 'r', id_token: 'i', access_token: 'a', expires_in: 300 });
+  (validateIdToken as jest.Mock).mockResolvedValue({ sub: 'u' });
+  (getUserInfo as jest.Mock).mockResolvedValue({ sub: 'u' });
+  const response = mockResponse();
+  await finalHandler('get', '/oidc/callback')({ query: { code: 'c', state: 's' }, headers: {} } as unknown as Request, response as unknown as Response, next);
+  expect(response.redirect).toHaveBeenCalledWith(302, 'https://app.example/login?auth_error=unauthorized');
+  expect(createSession).not.toHaveBeenCalled();
+  expect(mockUsers.recordLogin).not.toHaveBeenCalled();
 });

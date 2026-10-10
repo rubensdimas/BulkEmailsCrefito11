@@ -7,7 +7,7 @@ export interface LocalAuthInput {
 }
 
 export type LocalAuthResult =
-  | { ok: true; user: LocalUser }
+  | { ok: true; user: LocalUser; credentialVersion: number }
   | { ok: false; reason: 'invalid_credentials' | 'blocked' };
 
 type FailureReason = 'unknown_user' | 'wrong_password' | 'disabled';
@@ -63,6 +63,7 @@ export const createLocalAuthService = (deps: LocalAuthDependencies) => {
       }
 
       const user = await deps.users.findByUsername(normalized);
+      const credentialVersion = user?.credentialVersion;
       const reason = await failureReason(user, password);
       if (reason || !user) {
         await deps.attempts.registerFailure(normalized, ip);
@@ -73,7 +74,7 @@ export const createLocalAuthService = (deps: LocalAuthDependencies) => {
       await deps.attempts.clear(normalized, ip);
       await deps.users.recordLogin(user.id);
       log({ outcome: 'success', username: normalized, ip });
-      return { ok: true, user };
+      return { ok: true, user, credentialVersion: credentialVersion! };
     },
   };
 };

@@ -48,6 +48,7 @@ export interface LocalAuthSession {
   provider: 'local';
   user: AuthenticatedUser;
   localUserId: string;
+  credentialVersion: number;
 }
 
 export type AuthSession = OidcAuthSession | LocalAuthSession;
@@ -102,10 +103,11 @@ export const createSession = async (
   return id;
 };
 
-export const createLocalSession = async (user: AuthenticatedUser, localUserId: string): Promise<string> => {
+export const createLocalSession = async (user: AuthenticatedUser, localUserId: string, credentialVersion: number): Promise<string> => {
   const id = createOpaqueId();
   const redis = getRedisClient();
-  const session: LocalAuthSession = { provider: 'local', user, localUserId };
+  if (!Number.isSafeInteger(credentialVersion) || credentialVersion < 0) throw new Error('Invalid credential version');
+  const session: LocalAuthSession = { provider: 'local', user, localUserId, credentialVersion };
   await redis.set(sessionKey(id), JSON.stringify(session), 'EX', SESSION_TTL_SECONDS);
   // Index lets password resets and deactivation end every open session at once.
   await redis.sadd(localUserSessionsKey(localUserId), id);
@@ -134,7 +136,9 @@ const parseSession = (value: string | null): AuthSession | null => {
     const stored = JSON.parse(value) as StoredSession;
     if (!stored.user?.sub) return null;
     if (stored.provider === 'local') {
-      return stored.localUserId ? { provider: 'local', user: stored.user, localUserId: stored.localUserId } : null;
+      const credentialVersion = stored.credentialVersion === undefined ? 0 : stored.credentialVersion;
+      if (!Number.isSafeInteger(credentialVersion) || credentialVersion < 0) return null;
+      return stored.localUserId ? { provider: 'local', user: stored.user, localUserId: stored.localUserId, credentialVersion } : null;
     }
     // Sessions created before Story 4.1 have no provider and are OIDC sessions.
     if (stored.provider !== undefined && stored.provider !== 'oidc') return null;
@@ -166,7 +170,15 @@ export const refreshSessionIfNeeded = async (id: string, session: AuthSession): 
   try {
     const context = await loadOidcOperationContext();
     await assertOidcBinding(context, session);
-    if (!shouldRefreshToken(session.accessTokenExpiresAt)) return session;
+    if (!shouldRefreshToken(session.accessTokenExpiresAt)) {
+      if (session.issuer === undefined && session.configurationFingerprint === undefined) {
+        // assertOidcBinding verified the immutable bootstrap binding against this context.
+        const bound: OidcAuthSession = { ...session, issuer: context.configuration.issuer, configurationFingerprint: context.configurationFingerprint };
+        await getRedisClient().set(sessionKey(id), JSON.stringify(bound), 'EX', SESSION_TTL_SECONDS);
+        return bound;
+      }
+      return session;
+    }
     const tokens = await refreshOidcTokens(context, decryptRefreshToken(session.refreshToken));
     const identity = await validateIdToken(context, tokens.id_token);
     const user = await getUserInfo(context, tokens.access_token);

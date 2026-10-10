@@ -38,7 +38,7 @@ describe('localAuthService.authenticate', () => {
   it('normalizes the username before every lookup', async () => {
     const { deps, service } = setup();
     const result = await service.authenticate({ username: '  Admin ', password: 'correct password', ip });
-    expect(result).toEqual({ ok: true, user: activeAdmin });
+    expect(result).toEqual({ ok: true, user: activeAdmin, credentialVersion: 0 });
     expect(deps.attempts.isBlocked).toHaveBeenCalledWith('admin', ip);
     expect(deps.users.findByUsername).toHaveBeenCalledWith('admin');
     expect(deps.attempts.clear).toHaveBeenCalledWith('admin', ip);
