@@ -6,6 +6,7 @@ import {
   deleteSession,
   getRefreshTokenForSession,
   getSession,
+  isLocalSession,
   saveLoginTransaction,
 } from '../services/authSessionService';
 import {
@@ -113,7 +114,11 @@ router.post('/logout', requireAuthentication, requireTrustedOrigin, async (reque
     const session = await getSession(request.auth?.sessionId);
     await deleteSession(request.auth?.sessionId);
     response.clearCookie(SESSION_COOKIE, cookieOptions());
-    if (session) await revokeRefreshToken(getRefreshTokenForSession(session));
+    if (!session || isLocalSession(session)) {
+      response.status(200).json({ success: true, logoutUrl: null });
+      return;
+    }
+    await revokeRefreshToken(getRefreshTokenForSession(session));
     response.status(200).json({ success: true, logoutUrl: await getLogoutUrl() });
   } catch (error) {
     next(error);

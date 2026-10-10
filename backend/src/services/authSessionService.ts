@@ -18,6 +18,7 @@ export interface OidcLoginTransaction {
   state: string;
   nonce: string;
   codeVerifier: string;
+  returnTo?: string;
 }
 
 export interface AuthenticatedUser {
@@ -26,16 +27,31 @@ export interface AuthenticatedUser {
   email?: string;
 }
 
-export interface AuthSession {
+export type AuthProvider = 'oidc' | 'local';
+
+export interface OidcAuthSession {
+  provider: 'oidc';
   user: AuthenticatedUser;
   refreshToken: string;
   accessTokenExpiresAt: number;
 }
 
+export interface LocalAuthSession {
+  provider: 'local';
+  user: AuthenticatedUser;
+  localUserId: string;
+}
+
+export type AuthSession = OidcAuthSession | LocalAuthSession;
+
+export const isLocalSession = (session: AuthSession): session is LocalAuthSession => session.provider === 'local';
+
 export const createOpaqueId = (): string => randomBytes(32).toString('base64url');
 
 const loginKey = (id: string): string => `${LOGIN_PREFIX}${id}`;
 const sessionKey = (id: string): string => `${SESSION_PREFIX}${id}`;
+const LOCAL_USER_SESSIONS_PREFIX = 'auth:local:user-sessions:';
+const localUserSessionsKey = (localUserId: string): string => `${LOCAL_USER_SESSIONS_PREFIX}${localUserId}`;
 
 export const saveLoginTransaction = async (transaction: OidcLoginTransaction): Promise<string> => {
   const id = createOpaqueId();
@@ -65,7 +81,8 @@ export const createSession = async (
   expiresInSeconds: number,
 ): Promise<string> => {
   const id = createOpaqueId();
-  const session: AuthSession = {
+  const session: OidcAuthSession = {
+    provider: 'oidc',
     user,
     refreshToken: encryptRefreshToken(refreshToken),
     accessTokenExpiresAt: Date.now() + expiresInSeconds * 1000,
@@ -74,12 +91,46 @@ export const createSession = async (
   return id;
 };
 
+export const createLocalSession = async (user: AuthenticatedUser, localUserId: string): Promise<string> => {
+  const id = createOpaqueId();
+  const redis = getRedisClient();
+  const session: LocalAuthSession = { provider: 'local', user, localUserId };
+  await redis.set(sessionKey(id), JSON.stringify(session), 'EX', SESSION_TTL_SECONDS);
+  // Index lets password resets and deactivation end every open session at once.
+  await redis.sadd(localUserSessionsKey(localUserId), id);
+  await redis.expire(localUserSessionsKey(localUserId), SESSION_TTL_SECONDS);
+  return id;
+};
+
+export const revokeLocalUserSessions = async (localUserId: string): Promise<number> => {
+  const redis = getRedisClient();
+  const ids = await redis.smembers(localUserSessionsKey(localUserId));
+  if (ids.length > 0) await redis.del(...ids.map(sessionKey));
+  await redis.del(localUserSessionsKey(localUserId));
+  return ids.length;
+};
+
+type StoredSession = Partial<Omit<OidcAuthSession, 'provider'> & Omit<LocalAuthSession, 'provider'>> & {
+  provider?: string;
+};
+
 const parseSession = (value: string | null): AuthSession | null => {
   if (!value) return null;
   try {
-    const session = JSON.parse(value) as AuthSession;
-    if (!session.user?.sub || !session.refreshToken || !Number.isFinite(session.accessTokenExpiresAt)) return null;
-    return session;
+    const stored = JSON.parse(value) as StoredSession;
+    if (!stored.user?.sub) return null;
+    if (stored.provider === 'local') {
+      return stored.localUserId ? { provider: 'local', user: stored.user, localUserId: stored.localUserId } : null;
+    }
+    // Sessions created before Story 4.1 have no provider and are OIDC sessions.
+    if (stored.provider !== undefined && stored.provider !== 'oidc') return null;
+    if (!stored.refreshToken || !Number.isFinite(stored.accessTokenExpiresAt)) return null;
+    return {
+      provider: 'oidc',
+      user: stored.user,
+      refreshToken: stored.refreshToken,
+      accessTokenExpiresAt: stored.accessTokenExpiresAt as number,
+    };
   } catch {
     return null;
   }
@@ -95,6 +146,7 @@ export const getSession = async (id: string | undefined): Promise<AuthSession | 
 };
 
 export const refreshSessionIfNeeded = async (id: string, session: AuthSession): Promise<AuthSession | null> => {
+  if (isLocalSession(session)) return session;
   if (!shouldRefreshToken(session.accessTokenExpiresAt)) return session;
 
   try {
@@ -106,7 +158,8 @@ export const refreshSessionIfNeeded = async (id: string, session: AuthSession): 
       return null;
     }
 
-    const next: AuthSession = {
+    const next: OidcAuthSession = {
+      provider: 'oidc',
       user: { sub: user.sub, name: user.name, email: user.email },
       refreshToken: encryptRefreshToken(tokens.refresh_token),
       accessTokenExpiresAt: Date.now() + tokens.expires_in * 1000,
@@ -119,4 +172,4 @@ export const refreshSessionIfNeeded = async (id: string, session: AuthSession): 
   }
 };
 
-export const getRefreshTokenForSession = (session: AuthSession): string => decryptRefreshToken(session.refreshToken);
+export const getRefreshTokenForSession = (session: OidcAuthSession): string => decryptRefreshToken(session.refreshToken);
