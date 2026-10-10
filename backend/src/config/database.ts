@@ -18,10 +18,12 @@ export interface DatabaseConfig {
     user: string;
     password: string;
     database: string;
+    keepAlive: boolean;
   };
   pool: {
     min: number;
     max: number;
+    idleTimeoutMillis: number;
   };
   migrations: {
     tableName: string;
@@ -42,10 +44,14 @@ const dbConfig: DatabaseConfig = {
       process.env.NODE_ENV === 'production' ? undefined : 'bulkmail123',
     ) || '',
     database: process.env.POSTGRES_DB || 'bulkmail',
+    keepAlive: true,
   },
+  // Docker Swarm's IPVS silently drops TCP connections idle for 900s. Keep no
+  // permanently idle connections and release them well before that window.
   pool: {
-    min: 2,
+    min: 0,
     max: 10,
+    idleTimeoutMillis: 300_000,
   },
   migrations: {
     tableName: 'knex_migrations',

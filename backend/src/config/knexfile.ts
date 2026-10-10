@@ -11,8 +11,10 @@ const config: Record<string, Knex.Config> = {
       user: process.env.POSTGRES_USER,
       password: readSecret('POSTGRES_PASSWORD', 'POSTGRES_PASSWORD_FILE'),
       database: process.env.POSTGRES_DB,
+      keepAlive: true,
     },
-    pool: { min: 1, max: 5 },
+    // See config/database.ts: avoid idle connections dropped by Swarm IPVS.
+    pool: { min: 0, max: 5, idleTimeoutMillis: 300_000 },
     migrations: {
       tableName: 'knex_migrations',
       // Knex changes the working directory to the directory of this compiled
