@@ -18,6 +18,7 @@ import { requireAuthentication, requireAdmin, requirePasswordCurrent, requireTru
 import { deleteSession, getSession, refreshSessionIfNeeded } from '../services/authSessionService';
 
 jest.mock('../services/authSessionService', () => ({
+  SessionAccountDisabledError: jest.requireActual('../services/authSessionService').SessionAccountDisabledError,
   deleteSession: jest.fn(),
   getSession: jest.fn(),
   refreshSessionIfNeeded: jest.fn(),
@@ -234,5 +235,45 @@ describe('verified legacy OIDC account lifecycle', () => {
     expect(response.status).toHaveBeenCalledWith(401);
     expect(next).not.toHaveBeenCalled();
     expect(mockUsers.upsertOidcUser).not.toHaveBeenCalled();
+  });
+});
+
+describe('disabled OIDC accounts before token refresh', () => {
+  const sessions = jest.requireActual<typeof import('../services/authSessionService')>('../services/authSessionService');
+  const oidc = jest.requireActual<typeof import('../services/oidcService')>('../services/oidcService');
+  const settings = { enabled: true, issuer: 'https://original.example', clientId: 'client', clientSecret: 'secret', backchannelOrigin: '' };
+  const fetchMock = jest.fn();
+  const originalFetch = global.fetch;
+  let bound: { issuer: string; configurationFingerprint: string };
+  beforeEach(async () => {
+    jest.clearAllMocks(); mockStrings.clear();
+    process.env.APP_ORIGIN = 'https://app.example';
+    process.env.OIDC_SESSION_ENCRYPTION_KEY = 'a'.repeat(64);
+    oidc.setOidcSettingsSource(async () => settings);
+    const context = await oidc.loadOidcOperationContext();
+    bound = { issuer: context.configuration.issuer, configurationFingerprint: context.configurationFingerprint };
+    mockLegacyOidcBinding.mockResolvedValue(bound);
+    global.fetch = fetchMock as unknown as typeof fetch;
+    (getSession as jest.Mock).mockImplementation(sessions.getSession);
+    (refreshSessionIfNeeded as jest.Mock).mockImplementation(sessions.refreshSessionIfNeeded);
+    (deleteSession as jest.Mock).mockImplementation(sessions.deleteSession);
+    mockUsers.findByOidcSub.mockResolvedValue({ id: 'oidc-account', provider: 'oidc', role: 'operator', disabledAt: new Date(), mustChangePassword: false });
+  });
+  afterEach(() => { global.fetch = originalFetch; });
+
+  it.each(['bound', 'legacy'])('rejects a disabled account with an expiring %s session without calling the provider', async (kind) => {
+    const binding = kind === 'bound' ? bound : {};
+    mockStrings.set('oidc:session:expiring', JSON.stringify({ provider: 'oidc', ...binding, user: { sub: 'sub-1' }, refreshToken: 'unused-encrypted', accessTokenExpiresAt: Date.now() - 1000 }));
+    const response = { status: jest.fn(), json: jest.fn(), clearCookie: jest.fn() }; response.status.mockReturnValue(response);
+    const next = jest.fn();
+    await requireAuthentication({ headers: { cookie: `${SESSION_COOKIE}=expiring` } } as Request, response as unknown as Response, next);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(mockUsers.findByOidcSub).toHaveBeenCalledWith('https://original.example', 'sub-1');
+    expect(mockUsers.upsertOidcUser).not.toHaveBeenCalled();
+    expect(response.status).toHaveBeenCalledWith(401);
+    expect(response.json).toHaveBeenCalledWith({ success: false, error: 'Account disabled' });
+    expect(response.clearCookie).toHaveBeenCalled();
+    expect(mockStrings.has('oidc:session:expiring')).toBe(false);
+    expect(next).not.toHaveBeenCalled();
   });
 });

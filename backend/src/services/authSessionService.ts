@@ -165,7 +165,15 @@ export const getSession = async (id: string | undefined): Promise<AuthSession | 
   return parseSession(await getRedisClient().get(sessionKey(id)));
 };
 
-export const refreshSessionIfNeeded = async (id: string, session: AuthSession): Promise<AuthSession | null> => {
+/** Raised by a refresh guard to end the session before any token reaches the provider. */
+export class SessionAccountDisabledError extends Error {
+  constructor() { super('Account disabled'); }
+}
+
+/** Receives the session bound to the verified issuer; may throw SessionAccountDisabledError. */
+export type BeforeTokenRefresh = (bound: OidcAuthSession & { issuer: string }) => Promise<void>;
+
+export const refreshSessionIfNeeded = async (id: string, session: AuthSession, beforeTokenRefresh?: BeforeTokenRefresh): Promise<AuthSession | null> => {
   if (isLocalSession(session)) return session;
   try {
     const context = await loadOidcOperationContext();
@@ -179,6 +187,8 @@ export const refreshSessionIfNeeded = async (id: string, session: AuthSession): 
       }
       return session;
     }
+    // Account checks run after binding verification and before any provider call.
+    await beforeTokenRefresh?.({ ...session, issuer: context.configuration.issuer, configurationFingerprint: context.configurationFingerprint });
     const tokens = await refreshOidcTokens(context, decryptRefreshToken(session.refreshToken));
     const identity = await validateIdToken(context, tokens.id_token);
     const user = await getUserInfo(context, tokens.access_token);
@@ -199,6 +209,7 @@ export const refreshSessionIfNeeded = async (id: string, session: AuthSession): 
     return next;
   } catch (error) {
     await deleteSession(id);
+    if (error instanceof SessionAccountDisabledError) throw error;
     // Authentication must preserve the login-required configuration signal.
     if (error instanceof OidcError && ['not_configured', 'configuration_error'].includes(error.code)) {
       throw new OidcError('Configuração da intranet indisponível. Entre novamente.', 'not_configured');

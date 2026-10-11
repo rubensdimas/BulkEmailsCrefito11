@@ -29,6 +29,7 @@ import { assertSessionEncryptionKey } from './services/oidcService';
 import { getDatabase } from './config/database';
 import { getRedisClient, closeRedisConnection } from './config/redis';
 import { shutdownDatabase } from './services/databaseService';
+import { describeConfigurationFailure, initializeSettingsFromEnvironment } from './services/configService';
 
 // Load environment variables
 import dotenv from 'dotenv';
@@ -109,11 +110,12 @@ const startServer = async (): Promise<Server> => {
   try {
     const { initializeDatabase, getConfigService } = await import('./services/databaseService');
     await initializeDatabase();
-    const imported = await getConfigService().importFromEnvironment();
-    console.log(`[Settings] import_environment mailgrid=${imported.mailgrid} oidc=${imported.oidc}`);
-  } catch {
-    console.error('Database configuration initialization failed');
-    throw new Error('Database configuration initialization failed');
+    await initializeSettingsFromEnvironment(getConfigService());
+  } catch (error) {
+    // Sanitized detail only: never stack traces, environment values or secret file contents.
+    const reason = describeConfigurationFailure(error);
+    console.error(`Database configuration initialization failed: ${reason}`);
+    throw new Error(`Database configuration initialization failed: ${reason}`);
   }
 
   try {

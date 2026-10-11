@@ -157,13 +157,20 @@ administradores) e ficam na tabela `configurations`, com segredos criptografados
 No primeiro start da nova versão, se o banco não tiver a configuração, o backend copia
 uma única vez os valores atuais de `MAILGRID_*` e `OIDC_*` (incluindo os Docker secrets).
 Confirme a importação pela linha de log (`mailgrid=true`/`oidc=true` indica que a seção foi
-importada neste start; `false` indica que o banco já tinha a configuração):
+importada neste start; `false` indica que nada foi importado, seja porque o banco já tinha a
+configuração, seja porque o ambiente não tinha valores para a seção — `MAILGRID_HOST` ou
+`OIDC_ISSUER` ausentes):
 
 ```bash
 docker service logs --since 10m bulkmail_backend | grep '\[Settings\] import_environment'
 ```
 
-Uma falha aparece como `Database configuration initialization failed`.
+Uma falha aparece como `Database configuration initialization failed: <motivo>`; o motivo é
+um texto fixo (ou o nome/código do erro do banco) e nunca inclui valores de segredos.
+
+Se o banco já tinha uma configuração do Mailgrid sem token do webhook, o log também mostra
+`[Settings] mailgrid webhook token not configured`: o token **não** é lido do ambiente nesse
+caso, e os webhooks do Mailgrid respondem `503` até que ele seja informado na tela.
 
 Depois, entre como administrador e confira **Configurações → E-mail** e
 **Configurações → Login intranet** (use **Testar**). A partir daí, alterações feitas no
@@ -203,6 +210,10 @@ Depois, entre como administrador e confira **Configurações → E-mail** e
 7. Entre pela intranet numa janela anônima (Operador, sem o link Configurações), promova
    pelo admin e recarregue; crie um usuário local de teste, confirme a troca obrigatória
    de senha e desative-o.
+8. Em **Configurações → E-mail**, confirme que o campo do token do webhook mostra
+   "Token configurado" (e que o log não mostra `[Settings] mailgrid webhook token not configured`).
+   Caso contrário, informe novamente o token do webhook e salve antes de depender do
+   rastreamento de entrega.
 
 ### Falha ao ler secret file
 

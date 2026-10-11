@@ -3,7 +3,7 @@ import type { User } from '../repositories/userRepository';
 import { resolveAccount } from '../services/accountService';
 import { getUserRepository } from '../services/databaseService';
 import { OidcError } from '../services/oidcConfiguration';
-import { AuthSession, deleteSession, getSession, refreshSessionIfNeeded } from '../services/authSessionService';
+import { AuthSession, BeforeTokenRefresh, deleteSession, getSession, refreshSessionIfNeeded, SessionAccountDisabledError } from '../services/authSessionService';
 
 export const SESSION_COOKIE = process.env.NODE_ENV === 'production' ? '__Host-bulkmail_session' : 'bulkmail_session';
 export const LOGIN_COOKIE = process.env.NODE_ENV === 'production' ? '__Host-bulkmail_oidc_login' : 'bulkmail_oidc_login';
@@ -40,6 +40,12 @@ export const cookieOptions = (maxAge?: number) => ({
   ...(maxAge ? { maxAge } : {}),
 });
 
+// Lookup only: unknown accounts are registered after a successful refresh, as before.
+const rejectDisabledBeforeRefresh: BeforeTokenRefresh = async (bound) => {
+  const existing = await getUserRepository().findByOidcSub(bound.issuer, bound.user.sub);
+  if (existing?.disabledAt) throw new SessionAccountDisabledError();
+};
+
 export const requireAuthentication = async (
   request: AuthenticatedRequest,
   response: Response,
@@ -53,7 +59,7 @@ export const requireAuthentication = async (
       return;
     }
 
-    const currentSession = await refreshSessionIfNeeded(sessionId, session);
+    const currentSession = await refreshSessionIfNeeded(sessionId, session, rejectDisabledBeforeRefresh);
     if (!currentSession) {
       response.clearCookie(SESSION_COOKIE, cookieOptions());
       response.status(401).json({ success: false, error: 'Session expired' });
@@ -70,6 +76,12 @@ export const requireAuthentication = async (
     request.auth = { sessionId, session: currentSession, account };
     next();
   } catch (error) {
+    if (error instanceof SessionAccountDisabledError) {
+      // The refresh operation already ended the session.
+      response.clearCookie(SESSION_COOKIE, cookieOptions());
+      response.status(401).json({ success: false, error: 'Account disabled' });
+      return;
+    }
     if (error instanceof OidcError && error.code === 'not_configured') {
       response.clearCookie(SESSION_COOKIE, cookieOptions());
       response.status(401).json({ success: false, error: 'not_configured' });

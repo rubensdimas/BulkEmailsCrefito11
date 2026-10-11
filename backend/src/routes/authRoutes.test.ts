@@ -5,6 +5,12 @@ jest.mock('../services/databaseService', () => ({ getUserRepository: () => mockU
 const mockRedisDelete = jest.fn().mockResolvedValue(1);
 jest.mock('../config/redis', () => ({ getRedisClient: () => ({ del: mockRedisDelete }) }));
 import type { NextFunction, Request, Response } from 'express';
+jest.mock('../services/loginAttemptLimiter', () => ({
+  isLoginBlocked: jest.fn().mockResolvedValue(false),
+  registerFailedLogin: jest.fn().mockResolvedValue(undefined),
+  clearFailedLogins: jest.fn().mockResolvedValue(undefined),
+}));
+import { clearFailedLogins, isLoginBlocked, registerFailedLogin } from '../services/loginAttemptLimiter';
 
 jest.mock('../services/oidcService', () => ({
   loadOidcOperationContext: jest.fn().mockResolvedValue({ configuration: { issuer: 'https://idp.example' }, configurationFingerprint: 'fingerprint' }),
@@ -231,4 +237,34 @@ it('changes own password and reports domain errors', async () => {
   expect(response.status).toHaveBeenCalledWith(409);
   expect(response.json).toHaveBeenCalledWith({ success: false, error: 'credentials_changed', message: 'Sua senha foi alterada. Entre novamente para continuar.' });
   expect(routeStack('post', '/password')).toContain(requireTrustedOrigin);
+});
+
+it('limits current-password guesses per user like the login limiter', async () => {
+  const { UserAdminError } = jest.requireActual('../services/userAdminService');
+  const account = { id: 'user-7', provider: 'local' };
+  const request = { auth: { account }, ip: '10.0.0.1', body: { currentPassword: 'wrong', newPassword: 'b' } } as unknown as Request;
+  mockChangeOwnPassword.mockRejectedValueOnce(new UserAdminError('invalid_current_password', 400, 'A senha atual está incorreta.'));
+  let response = mockResponse();
+  await finalHandler('post', '/password')(request, response as unknown as Response, next);
+  expect(response.status).toHaveBeenCalledWith(400);
+  expect(registerFailedLogin).toHaveBeenCalledWith('password-change:user-7', '10.0.0.1');
+
+  (isLoginBlocked as jest.Mock).mockResolvedValueOnce(true);
+  mockChangeOwnPassword.mockClear();
+  response = mockResponse();
+  await finalHandler('post', '/password')(request, response as unknown as Response, next);
+  expect(isLoginBlocked).toHaveBeenLastCalledWith('password-change:user-7', '10.0.0.1');
+  expect(mockChangeOwnPassword).not.toHaveBeenCalled();
+  expect(response.status).toHaveBeenCalledWith(429);
+  expect(response.json).toHaveBeenCalledWith({ success: false, error: 'too_many_attempts', message: 'Muitas tentativas. Aguarde alguns minutos e tente novamente.' });
+
+  (registerFailedLogin as jest.Mock).mockClear();
+  mockChangeOwnPassword.mockRejectedValueOnce(new UserAdminError('same_password', 400, 'A nova senha deve ser diferente da senha atual.'));
+  await finalHandler('post', '/password')(request, mockResponse() as unknown as Response, next);
+  expect(registerFailedLogin).not.toHaveBeenCalled();
+
+  response = mockResponse();
+  await finalHandler('post', '/password')(request, response as unknown as Response, next);
+  expect(response.json).toHaveBeenCalledWith({ success: true });
+  expect(clearFailedLogins).toHaveBeenCalledWith('password-change:user-7', '10.0.0.1');
 });

@@ -39,6 +39,7 @@ import { createLocalAuthService } from '../services/localAuthService';
 import { clearFailedLogins, isLoginBlocked, registerFailedLogin } from '../services/loginAttemptLimiter';
 import { verifyAgainstDummy, verifyPassword } from '../services/passwordHasher';
 import { toAccountView } from '../services/accountService';
+import { UserAdminError } from '../services/userAdminService';
 import { sanitizeReturnTo } from '../utils/returnTo';
 
 import { handleUserAdmin, userAdminService } from './userAdminRoutes';
@@ -155,7 +156,20 @@ router.get('/me', requireAuthentication, (request: AuthenticatedRequest, respons
 });
 
 router.post('/password', requireAuthentication, requireTrustedOrigin, handleUserAdmin(async (request, response) => {
-  await userAdminService().changeOwnPassword(request.auth!.account, request.body?.currentPassword, request.body?.newPassword);
+  // Current-password guesses share the login limiter, keyed by account id (not username) plus IP.
+  const attemptKey = `password-change:${request.auth!.account.id}`;
+  const ip = request.ip ?? 'unknown';
+  if (await isLoginBlocked(attemptKey, ip)) {
+    response.status(429).json({ success: false, error: 'too_many_attempts', message: 'Muitas tentativas. Aguarde alguns minutos e tente novamente.' });
+    return;
+  }
+  try {
+    await userAdminService().changeOwnPassword(request.auth!.account, request.body?.currentPassword, request.body?.newPassword);
+  } catch (error) {
+    if (error instanceof UserAdminError && error.code === 'invalid_current_password') await registerFailedLogin(attemptKey, ip);
+    throw error;
+  }
+  await clearFailedLogins(attemptKey, ip);
   response.json({ success: true });
 }));
 

@@ -1,7 +1,10 @@
 /**
  * Config Service Tests
  */
-import { ConfigService } from './configService';
+import { ConfigService, describeConfigurationFailure, initializeSettingsFromEnvironment } from './configService';
+import { OidcError } from './oidcConfiguration';
+import { ConfigurationError } from './configEncryption';
+import type { SystemConfig } from '../models/SystemConfig';
 import { SystemConfigRepository } from '../repositories/systemConfigRepository';
 import type { Knex } from 'knex';
 
@@ -144,6 +147,48 @@ describe('ConfigService', () => {
           from_name: 'BulkMail Pro',
         }
       });
+    });
+  });
+
+  describe('startup initialization', () => {
+    const smtpRow = (value: object): SystemConfig => ({ id: 1, key: 'smtp', value: value as SystemConfig['value'], created_at: new Date(), updated_at: new Date() });
+    let log: jest.SpyInstance;
+    let warn: jest.SpyInstance;
+    beforeEach(() => {
+      log = jest.spyOn(console, 'log').mockImplementation(() => undefined);
+      warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      mockRepository.insertIfAbsent.mockResolvedValue(true);
+    });
+    afterEach(() => { log.mockRestore(); warn.mockRestore(); });
+
+    it('warns without values when stored Mailgrid has no webhook token', async () => {
+      mockRepository.getByKey.mockImplementation(async (key) => key === 'smtp' ? smtpRow({ host: 'smtp.example', user: 'u', pass: 'stored-pass', webhook_token: '' }) : null);
+      await initializeSettingsFromEnvironment(configService, { MAILGRID_WEBHOOK_TOKEN: 'env-token' });
+      expect(log).toHaveBeenCalledWith('[Settings] import_environment mailgrid=false oidc=false');
+      expect(warn).toHaveBeenCalledWith('[Settings] mailgrid webhook token not configured');
+      expect(JSON.stringify([...log.mock.calls, ...warn.mock.calls])).not.toMatch(/stored-pass|env-token|smtp\.example/);
+    });
+
+    it.each([
+      ['configured token', smtpRow({ host: 'smtp.example', webhook_token: 'enc-token' })],
+      ['no Mailgrid configuration', null],
+    ])('does not warn with %s', async (_label, row) => {
+      mockRepository.getByKey.mockImplementation(async (key) => key === 'smtp' ? row : null);
+      await initializeSettingsFromEnvironment(configService, {});
+      expect(warn).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('describeConfigurationFailure', () => {
+    it.each([
+      [new OidcError('OIDC_CLIENT_SECRET_FILE is not readable', 'configuration_error'), 'OIDC_CLIENT_SECRET_FILE is not readable'],
+      [new ConfigurationError('CONFIG_ENCRYPTION_KEY is required in production'), 'CONFIG_ENCRYPTION_KEY is required in production'],
+      [Object.assign(new Error('connect ECONNREFUSED postgres://bulkmail:db-secret@db:5432'), { code: 'ECONNREFUSED' }), 'Error (ECONNREFUSED)'],
+      [new Error('password authentication failed: db-secret'), 'Error'],
+      [new OidcError('Identity provider is unavailable: db-secret', 'provider_unavailable'), 'Error'],
+      ['db-secret', 'Unknown error'],
+    ])('returns only sanitized details for %p', (error, expected) => {
+      expect(describeConfigurationFailure(error)).toBe(expected);
     });
   });
 });

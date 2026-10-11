@@ -5,8 +5,8 @@
 import type { Knex } from 'knex';
 import { SystemConfigRepository } from '../repositories/systemConfigRepository';
 import { MailgridConfig, OidcSettings, LegacyOidcBinding } from '../models/SystemConfig';
-import { decryptSecret, encryptSecret } from './configEncryption';
-import { environmentSecret, getSessionEncryptionKey, oidcConfigurationFingerprint } from './oidcConfiguration';
+import { ConfigurationError, decryptSecret, encryptSecret } from './configEncryption';
+import { environmentSecret, getSessionEncryptionKey, OidcError, oidcConfigurationFingerprint } from './oidcConfiguration';
 
 export class ConfigService {
   private repository: SystemConfigRepository;
@@ -38,6 +38,12 @@ export class ConfigService {
     await this.repository.set({ key: 'oidc', value: { ...settings, clientSecret: encryptSecret(settings.clientSecret) } });
   }
 
+  /** True when a stored Mailgrid configuration has no webhook token (reads no secret values). */
+  async isMailgridWebhookTokenMissing(): Promise<boolean> {
+    const config = await this.repository.getByKey('smtp');
+    return Boolean(config) && !(config!.value as MailgridConfig).webhook_token;
+  }
+
   async getLegacyOidcBinding(): Promise<LegacyOidcBinding | null> {
     return this.getConfig<LegacyOidcBinding>('oidc_legacy_binding');
   }
@@ -66,17 +72,17 @@ export class ConfigService {
         const clientId = (env.OIDC_CLIENT_ID || '').trim();
         const clientSecret = environmentSecret(env, 'OIDC_CLIENT_SECRET');
         const backchannelOrigin = (env.OIDC_BACKCHANNEL_ORIGIN || '').trim().replace(/\/+$/, '');
-        if (!clientId || !clientSecret) throw new Error('OIDC_CLIENT_ID and OIDC_CLIENT_SECRET are required');
+        if (!clientId || !clientSecret) throw new ConfigurationError('OIDC_CLIENT_ID and OIDC_CLIENT_SECRET are required');
         let issuerUrl: URL;
         let backchannelUrl: URL | null;
         try { issuerUrl = new URL(issuer); backchannelUrl = backchannelOrigin ? new URL(backchannelOrigin) : null; }
-        catch { throw new Error('OIDC issuer and backchannel must be valid URLs'); }
+        catch { throw new ConfigurationError('OIDC issuer and backchannel must be valid URLs'); }
         const local = ['localhost', '127.0.0.1', '[::1]'].includes(issuerUrl.hostname);
         if (issuerUrl.protocol !== 'https:' && !(issuerUrl.protocol === 'http:' && local && process.env.NODE_ENV !== 'production')) {
-          throw new Error('OIDC issuer must use HTTPS outside local development');
+          throw new ConfigurationError('OIDC issuer must use HTTPS outside local development');
         }
         if (backchannelUrl && (process.env.NODE_ENV === 'production' || !['http:', 'https:'].includes(backchannelUrl.protocol))) {
-          throw new Error('OIDC backchannel must use HTTP or HTTPS outside production');
+          throw new ConfigurationError('OIDC backchannel must use HTTP or HTTPS outside production');
         }
         importedOidc = { enabled: true, issuer, clientId, clientSecret: encryptSecret(clientSecret), backchannelOrigin };
       }
@@ -86,7 +92,7 @@ export class ConfigService {
       if (!binding && key) {
         // A competing import may have won: derive only from persisted settings after insert.
         const stored = await repository.getByKey('oidc');
-        if (!stored) throw new Error('OIDC configuration was not persisted');
+        if (!stored) throw new ConfigurationError('OIDC configuration was not persisted');
         const settings = this.decryptOidcSettings(stored.value as OidcSettings);
         await repository.insertIfAbsent('oidc_legacy_binding', {
           issuer: settings.issuer, configurationFingerprint: oidcConfigurationFingerprint(settings, key),
@@ -120,6 +126,23 @@ export class ConfigService {
     return config ? (config.value as T) : null;
   }
 }
+
+/** Startup import plus warnings an operator must act on; logs only flags, never values. */
+export const initializeSettingsFromEnvironment = async (service: ConfigService, env: NodeJS.ProcessEnv = process.env): Promise<void> => {
+  const imported = await service.importFromEnvironment(env);
+  console.log(`[Settings] import_environment mailgrid=${imported.mailgrid} oidc=${imported.oidc}`);
+  // Stored configuration ignores the environment, so a missing token is not filled from MAILGRID_WEBHOOK_TOKEN.
+  if (await service.isMailgridWebhookTokenMissing()) console.warn('[Settings] mailgrid webhook token not configured');
+};
+
+/** Startup failure detail safe to log: only messages written as fixed text by this application. */
+export const describeConfigurationFailure = (error: unknown): string => {
+  if ((error instanceof OidcError && error.code === 'configuration_error') || error instanceof ConfigurationError) return error.message;
+  if (!(error instanceof Error)) return 'Unknown error';
+  // Driver messages may echo connection details; keep only the error name and a symbolic code.
+  const code = (error as { code?: unknown }).code;
+  return typeof code === 'string' && /^[A-Z0-9_]{1,40}$/.test(code) ? `${error.name} (${code})` : error.name;
+};
 
 /**
  * Create ConfigService instance
