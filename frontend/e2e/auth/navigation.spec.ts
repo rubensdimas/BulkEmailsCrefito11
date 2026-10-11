@@ -141,3 +141,56 @@ test('refreshes a forced password flag returned after an operational request', a
   await expect(page).toHaveURL(/\/account\/password$/);
   await expect(page.getByText('Defina uma nova senha para continuar.')).toBeVisible();
 });
+
+const requestJobs = async (page: Page) => {
+  await page.evaluate("import('/src/services/api.ts').then(({ api }) => { void api.get('/jobs').catch(() => undefined); })");
+};
+const settleAccountResponse = async (page: Page, route: Route) => {
+  const response = page.waitForResponse('**/api/auth/me');
+  await route.fulfill(json({ success: true, data: admin }));
+  await response;
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+};
+
+test('ignores a pending admin refresh after an operational 401 invalidates the account', async ({ page }) => {
+  await mockSession(page, admin);
+  await page.goto('/dashboard');
+  await expect(page.getByRole('navigation', { name: 'Principal' })).toBeVisible();
+  let capture!: (route: Route) => void;
+  const pending = new Promise<Route>(resolve => { capture = resolve; });
+  await page.route('**/api/auth/me', route => { capture(route); });
+  await page.route('**/api/jobs*', route => route.fulfill(json({ success: false, error: 'forbidden' }, 403)));
+  await requestJobs(page);
+  const oldRefresh = await pending;
+  await page.route('**/api/jobs*', route => route.fulfill(json({ success: false, error: 'not_configured' }, 401)));
+  await requestJobs(page);
+  await expect(page.getByRole('alert')).toHaveText('O login pela intranet não está configurado.');
+  await page.route('**/api/jobs*', route => route.fulfill(json({ success: true, data: [], pagination: { total: 0, limit: 10, offset: 0, pages: 0 } })));
+  await settleAccountResponse(page, oldRefresh);
+  await expect(page).toHaveURL(/\/login/);
+  await expect(page.getByRole('alert')).toHaveText('O login pela intranet não está configurado.');
+  await expect(page.getByRole('navigation', { name: 'Principal' })).toHaveCount(0);
+});
+
+test('keeps the latest operator role when an older admin refresh resolves last', async ({ page }) => {
+  await mockSession(page, admin);
+  await page.goto('/dashboard');
+  await expect(page.getByRole('navigation', { name: 'Principal' })).toBeVisible();
+  let capture!: (route: Route) => void;
+  const pending = new Promise<Route>(resolve => { capture = resolve; });
+  let requests = 0;
+  await page.route('**/api/auth/me', route => {
+    if (++requests === 1) { capture(route); return; }
+    return route.fulfill(json({ success: true, data: operator }));
+  });
+  await page.route('**/api/jobs*', route => route.fulfill(json({ success: false, error: 'forbidden' }, 403)));
+  await requestJobs(page);
+  const oldRefresh = await pending;
+  await requestJobs(page);
+  const settings = page.getByRole('navigation', { name: 'Principal' }).getByRole('link', { name: 'Configurações' });
+  await expect(settings).toHaveCount(0);
+  await settleAccountResponse(page, oldRefresh);
+  await expect(settings).toHaveCount(0);
+  await page.getByRole('navigation', { name: 'Principal' }).getByRole('link', { name: 'Novo Envio' }).click();
+  await expect(page).toHaveURL(/\/$/);
+});
