@@ -8,6 +8,7 @@ import DashboardPage from './pages/DashboardPage';
 import SettingsLayout from './pages/settings/SettingsLayout';
 import SettingsUsersPage from './pages/settings/SettingsUsersPage';
 import SettingsEmailPage from './pages/settings/SettingsEmailPage';
+import SettingsOidcPage from './pages/settings/SettingsOidcPage';
 import LoginPage from './pages/LoginPage';
 import { AuthGate, AuthProvider } from './components/Auth/AuthProvider';
 
@@ -28,6 +29,7 @@ function App() {
           <Route index element={<Navigate to="users" replace />} />
           <Route path="users" element={<SettingsUsersPage />} />
           <Route path="email" element={<SettingsEmailPage />} />
+          <Route path="oidc" element={<SettingsOidcPage />} />
         </Route>
       </Route>
     </Route>

@@ -379,3 +379,31 @@ export const updateUserAccess = async (id: string, change: { role?: UserRole; di
 export const resetUserPassword = async (id: string, password: string): Promise<void> => {
   await api.post(`/admin/users/${encodeURIComponent(id)}/password`, { password });
 };
+
+export interface OidcConfig {
+  enabled: boolean;
+  issuer: string;
+  clientId: string;
+  clientSecret: string;
+  clientSecretConfigured: boolean;
+  backchannelAllowed: boolean;
+  backchannelOrigin: string;
+  callbackUrl: string;
+}
+
+export type OidcConfigInput = Pick<OidcConfig, 'enabled' | 'issuer' | 'clientId' | 'clientSecret' | 'backchannelOrigin'>;
+
+export const getOidcConfig = async (signal?: AbortSignal): Promise<OidcConfig> => {
+  const response = await api.get<{ success: boolean; data: OidcConfig }>('/config/oidc', { signal });
+  return response.data.data;
+};
+
+export const saveOidcConfig = async (input: OidcConfigInput): Promise<string> => {
+  const response = await api.post<{ success: boolean; message: string }>('/config/oidc', input);
+  return response.data.message;
+};
+
+export const testOidcConfig = async (input: OidcConfigInput): Promise<string> => {
+  const response = await api.post<{ success: boolean; message: string }>('/config/oidc/test', input);
+  return response.data.message;
+};

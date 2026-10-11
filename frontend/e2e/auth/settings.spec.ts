@@ -187,3 +187,126 @@ test.describe('Settings', () => {
     await expect(page.locator('nav[data-settings-nav="tabs"]')).toBeVisible();
   });
 });
+
+const oidcConfig = {
+  enabled: true, issuer: 'https://intranet.crefito11.gov.br', clientId: 'bulkmail', clientSecret: '',
+  clientSecretConfigured: true, backchannelAllowed: true, backchannelOrigin: '', callbackUrl: 'http://127.0.0.1:5174/api/auth/oidc/callback',
+};
+
+test.describe('Intranet login settings', () => {
+  test('shows the stored settings and the callback URL', async ({ page }) => {
+    await mockAdmin(page);
+    await page.route('**/api/config/oidc', (route: Route) => route.fulfill(json({ success: true, data: oidcConfig })));
+    await page.goto('/settings/oidc');
+    await expect(page.getByLabel('Ativar login pela intranet')).toBeChecked();
+    await expect(page.getByLabel('Issuer')).toHaveValue('https://intranet.crefito11.gov.br');
+    await expect(page.getByLabel('Client secret')).toHaveAttribute('placeholder', 'Configurado — deixe em branco para manter');
+    await expect(page.getByLabel('URL de callback')).toHaveValue('http://127.0.0.1:5174/api/auth/oidc/callback');
+  });
+
+  test('tests the connection without saving', async ({ page }) => {
+    await mockAdmin(page);
+    let saved = false;
+    await page.route('**/api/config/oidc', async (route: Route) => {
+      if (route.request().method() === 'POST') saved = true;
+      await route.fulfill(json({ success: true, data: oidcConfig }));
+    });
+    await page.route('**/api/config/oidc/test', (route: Route) => route.fulfill(json({ success: true, message: 'Conexão validada: discovery e chaves de assinatura encontrados.' })));
+    await page.goto('/settings/oidc');
+    await page.getByRole('button', { name: 'Testar' }).click();
+    await expect(page.getByRole('status')).toHaveText('Conexão validada: discovery e chaves de assinatura encontrados.');
+    expect(saved).toBe(false);
+  });
+
+  test('saves and shows validation errors from the server', async ({ page }) => {
+    await mockAdmin(page);
+    await page.route('**/api/config/oidc', async (route: Route) => {
+      if (route.request().method() === 'POST') {
+        const body = route.request().postDataJSON() as { issuer: string; clientSecret: string };
+        expect(body.clientSecret).toBe('');
+        if (body.issuer.startsWith('http://')) {
+          await route.fulfill(json({ success: false, error: 'invalid_oidc_settings', message: 'O issuer precisa usar HTTPS fora do ambiente local.' }, 400));
+          return;
+        }
+        await route.fulfill(json({ success: true, message: 'Configuração do login pela intranet salva.' }));
+        return;
+      }
+      await route.fulfill(json({ success: true, data: oidcConfig }));
+    });
+    await page.goto('/settings/oidc');
+    await page.getByLabel('Issuer').fill('http://intranet.crefito11.gov.br');
+    await page.getByRole('button', { name: 'Salvar' }).click();
+    await expect(page.getByRole('alert')).toHaveText('O issuer precisa usar HTTPS fora do ambiente local.');
+    await page.getByLabel('Issuer').fill('https://intranet.crefito11.gov.br');
+    await page.getByRole('button', { name: 'Salvar' }).click();
+    await expect(page.getByRole('status')).toHaveText('Configuração do login pela intranet salva.');
+  });
+
+  test('hides backchannel origin and sends it empty when not allowed', async ({ page }) => {
+    await mockAdmin(page);
+    let posted: Record<string, unknown> | null = null;
+    await page.route('**/api/config/oidc', async (route: Route) => {
+      if (route.request().method() === 'POST') {
+        posted = route.request().postDataJSON() as Record<string, unknown>;
+        await route.fulfill(json({ success: true, message: 'Salvo.' }));
+        return;
+      }
+      await route.fulfill(json({ success: true, data: { ...oidcConfig, backchannelAllowed: false, backchannelOrigin: 'http://stale:9000' } }));
+    });
+    await page.goto('/settings/oidc');
+    await expect(page.getByLabel('Issuer')).toBeVisible();
+    await expect(page.getByLabel('Backchannel origin')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Salvar' }).click();
+    await expect(page.getByRole('status')).toHaveText('Salvo.');
+    expect(posted).toMatchObject({ backchannelOrigin: '' });
+  });
+
+  test('shows backchannel origin when allowed', async ({ page }) => {
+    await mockAdmin(page);
+    await page.route('**/api/config/oidc', (route: Route) => route.fulfill(json({ success: true, data: oidcConfig })));
+    await page.goto('/settings/oidc');
+    await expect(page.getByLabel('Backchannel origin')).toBeVisible();
+  });
+
+  test('shows a 400 for an invalid issuer even when disabled', async ({ page }) => {
+    await mockAdmin(page);
+    await page.route('**/api/config/oidc', async (route: Route) => {
+      if (route.request().method() === 'POST') {
+        await route.fulfill(json({ success: false, error: 'invalid_oidc_settings', message: 'Issuer inválido.' }, 400));
+        return;
+      }
+      await route.fulfill(json({ success: true, data: { ...oidcConfig, enabled: false } }));
+    });
+    await page.goto('/settings/oidc');
+    await expect(page.getByLabel('Ativar login pela intranet')).not.toBeChecked();
+    await page.getByLabel('Issuer').fill('not-a-url');
+    await page.getByRole('button', { name: 'Salvar' }).click();
+    await expect(page.getByRole('alert')).toHaveText('Issuer inválido.');
+  });
+
+  test('clears the secret input after a successful save', async ({ page }) => {
+    await mockAdmin(page);
+    await page.route('**/api/config/oidc', async (route: Route) => {
+      if (route.request().method() === 'POST') {
+        expect((route.request().postDataJSON() as { clientSecret: string }).clientSecret).toBe('novo-segredo');
+        await route.fulfill(json({ success: true, message: 'Salvo.' }));
+        return;
+      }
+      await route.fulfill(json({ success: true, data: oidcConfig }));
+    });
+    await page.goto('/settings/oidc');
+    await page.getByLabel('Client secret').fill('novo-segredo');
+    await page.getByRole('button', { name: 'Salvar' }).click();
+    await expect(page.getByRole('status')).toHaveText('Salvo.');
+    await expect(page.getByLabel('Client secret')).toHaveValue('');
+  });
+
+  test('copies the callback URL', async ({ page, context }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    await mockAdmin(page);
+    await page.route('**/api/config/oidc', (route: Route) => route.fulfill(json({ success: true, data: oidcConfig })));
+    await page.goto('/settings/oidc');
+    await page.getByRole('button', { name: 'Copiar' }).click();
+    await expect(page.getByRole('status')).toHaveText('URL de callback copiada.');
+  });
+});
