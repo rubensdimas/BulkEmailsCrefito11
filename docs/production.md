@@ -146,7 +146,71 @@ O frontend está fixado em `react-router-dom@7.18.2`. A auditoria npm atual asso
 
 Não faça downgrade automático do React Router para eliminar o alerta: versões anteriores reintroduzem avisos de redirect já corrigidos. Reavalie e atualize para uma versão sem alertas quando ela estiver disponível. Esta exceção deixa de ser válida imediatamente se o projeto adotar SSR, RSC ou Server Actions.
 
+## Configurações no banco (Mailgrid e login pela intranet)
+
+Desde a Story 4.2, Mailgrid e OIDC são configurados em **Configurações** (somente
+administradores) e ficam na tabela `configurations`, com segredos criptografados por
+`CONFIG_ENCRYPTION_KEY`. Continuam no ambiente: Postgres, Redis, `APP_ORIGIN`,
+`CONFIG_ENCRYPTION_KEY`, `OIDC_SESSION_ENCRYPTION_KEY`, `TRUST_PROXY_HOPS` e
+`LOCAL_LOGIN_ENABLED`.
+
+No primeiro start da nova versão, se o banco não tiver a configuração, o backend copia
+uma única vez os valores atuais de `MAILGRID_*` e `OIDC_*` (incluindo os Docker secrets).
+O backend não emite log de sucesso da importação. Confirme que o start não falhou (a
+falha aparece como `Database configuration initialization failed`) e valide o resultado
+na tela:
+
+```bash
+docker service logs --since 10m bulkmail_backend | grep 'Database configuration initialization failed'
+```
+
+A saída deve ser vazia.
+
+Depois, entre como administrador e confira **Configurações → E-mail** e
+**Configurações → Login intranet** (use **Testar**). A partir daí, alterações feitas no
+`.env` ou nos secrets do Mailgrid/OIDC não têm efeito.
+
+### Antes do deploy
+
+- Garanta ao menos um administrador local (`npm run user:admin -- create`) antes de
+  depender da tela de Configurações.
+- Faça e guarde um backup do banco (veja "Backup sob demanda"). A migration que renomeia
+  `local_users` é destrutiva e seu rollback não é automático; a recuperação é pelo backup.
+- Não faça rolling deploy com versões antiga e nova ao mesmo tempo após o rename de
+  `local_users`. Registre uma janela de manutenção: pare o backend e os workers antigos,
+  execute a migration e só então inicie a nova versão.
+
+### Perfis
+
+- Usuários da intranet entram como **Operador** no primeiro acesso; promova-os em
+  **Configurações → Usuários**.
+- Sessões abertas antes do deploy continuam válidas enquanto a configuração importada
+  permanecer compatível; sua identidade é vinculada ao issuer original e os usuários
+  aparecem como Operador. Mudanças incompatíveis na configuração OIDC (por exemplo, de
+  issuer) exigem novo login e não transferem o perfil entre issuers.
+
+### Falha ao ler secret file
+
+Se a importação ou o carregamento falhar por causa de um secret file ausente ou ilegível,
+a importação é atômica: nada é gravado e o start falha com
+`Database configuration initialization failed`. Corrija o secret (sem imprimir seu valor),
+reinicie o serviço e confira novamente o start e as telas de Configurações. A importação
+só preenche seções ausentes e nunca sobrescreve valores já existentes no banco.
+
+### Retirada das variáveis antigas (follow-up)
+
+Depois de validar a importação em produção, uma story seguinte remove de
+`docker-compose.prod.yml`, `deploy/production.env`, `scripts/production/bootstrap.sh` e
+`scripts/production/deploy.sh` as variáveis `MAILGRID_*`, `OIDC_ISSUER`,
+`OIDC_CLIENT_ID`, `OIDC_BACKCHANNEL_ORIGIN` e os secrets `bulkmail_mailgrid_password`,
+`bulkmail_mailgrid_webhook_token` e `bulkmail_oidc_client_secret`. Não remova
+`bulkmail_config_encryption_key` nem `bulkmail_oidc_session_encryption_key`.
+
 ## Usuários locais (login por senha)
+
+Administradores também criam usuários, definem senhas, alteram perfis e desativam
+contas em **Configurações → Usuários**. Os comandos abaixo continuam disponíveis como
+acesso de emergência e sempre criam administradores.
 
 O login por usuário e senha convive com o login da intranet. Os comandos rodam
 dentro de um container do backend, **no nó onde a task está em execução**:

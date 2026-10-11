@@ -10,21 +10,48 @@
 
 **Spec:** `docs/stories/4.2.feat-settings-admin.story.md` (ACs 1–24).
 
+## Andamento salvo para retomada — 2026-10-10
+
+Registro documental do estado consultado, sem continuar a implementação. Branch `feat/4.2-settings-admin`; HEAD observado `39d944215c75c57416301b9aac72fd57b9964a9a`. Antes de retomar, conferir `git status`, `git log` e o ledger para identificar alterações posteriores a este registro.
+
+| Task | Estado | Commits / revisão |
+|---|---|---|
+| 1 — Usuários e migration | Concluída e aprovada | `be620d1`; especificação e qualidade aprovadas |
+| 2 — Último admin / CLI | Concluída e aprovada | `3a90784`, `6bc84d5`; teste prova conexões distintas e sobreposição |
+| 3 — Configurações / importação | Concluída e aprovada | `e58941f`; importação transacional e binding original |
+| 4 — OIDC por snapshot | Concluída e aprovada | `1e4b061`, `2e2da3b`; incompatibilidade preserva not_configured |
+| 5 — Conta e guards | Concluída e aprovada | `e265f29`, `dede366`; ordem de middleware corrigida e testada no app real |
+| 6 — APIs administrativas | Concluída e aprovada | `56e8efb`; CAS, redaction, auditoria e guards HTTP |
+| 7 — Navegação e senha no frontend | Concluída e aprovada | `39d9442`, `9cb496c` |
+| 8 — Layout, usuários e e-mail | Concluída e aprovada | `ac69437`, `b8ebadd` |
+| 9 — Tela OIDC | Concluída e aprovada | `53e8c56`, `17584c7` |
+| 10 — Deploy, runbook e gates | Concluída e aprovada | commit `docs: settings in database runbook and optional OIDC env` |
+
+**Próxima ação:** revisão final da branch e handoff ao @qa/@devops.
+
+**Evidências históricas verificadas nos relatórios:** Task 6: 393 testes backend, 19 integrações PostgreSQL e 17 verificações HTTP no app real passaram; lint, typecheck e build passaram. Task 7, antes da correção pendente: 40/40 testes de navegador e repetição auth 21/21 passaram, com lint/build aprovados. Esses resultados não certificam a correção ainda pendente nem a story completa. A revisão encontrou a corrida apesar dos testes anteriores passarem.
+
+**Ambiente para retomar:** PostgreSQL descartável `bulkmail-sdd-it-pg`, `127.0.0.1:55432`; Redis descartável `bulkmail-sdd-it-redis`, `127.0.0.1:56379`. Verificar disponibilidade antes de usar e evitar os serviços de desenvolvimento nas portas 5432/6379. Para Playwright: `PLAYWRIGHT_BASE_URL=http://127.0.0.1:5175`, `PLAYWRIGHT_AUTH_BASE_URL=http://127.0.0.1:5174`, `VITE_AUTH_ENABLED=false`, `VITE_API_URL=/api`; o servidor auth sobrescreve o flag para true. A porta 5173 pertence ao frontend Docker e interferiu no baseline. Acessos localhost/Docker/Git podem exigir escalada conforme as permissões vigentes.
+
+**Registros de apoio:** `.superpowers/sdd/2026-10-10-settings-admin/progress.md`, briefs e relatórios `task-N-report.md`, reviews e re-reviews no mesmo diretório. Esses arquivos são ignorados pelo Git; este checkpoint e a story guardam o resumo persistente. Para a pendência atual, ler `task-7-review.md` e o relatório/fix report da Task 7. CodeRabbit não está instalado; provider OIDC real e deploy não foram validados. Há artefatos gerados de navegador no working tree; não commitá-los como implementação. Nenhum push foi realizado.
+
 ## Global Constraints
 
 - Perfis: `'admin' | 'operator'`; origens: `'local' | 'oidc'`. Usuário local criado pelo CLI: `admin`, sem troca obrigatória; pela tela: perfil escolhido (padrão `admin`) e `must_change_password = true`.
 - Nome de usuário local: `^[a-z0-9._-]{3,64}$` após `trim().toLowerCase()` (reusar `USERNAME_PATTERN` e `normalizeUsername`). Senha: política existente (`validatePasswordPolicy`, 12–128).
 - Rotas novas da API: `GET|POST /api/admin/users`, `PATCH /api/admin/users/:id`, `POST /api/admin/users/:id/password`, `GET|POST /api/config/oidc`, `POST /api/config/oidc/test`, `POST /api/auth/password`. `/api/config/*` e `/api/admin/*` exigem admin.
-- Códigos de erro: `403 forbidden`, `403 password_change_required`, `409 last_active_admin`, `409 username_taken`, `404 not_found`, `400 invalid_request|invalid_username|invalid_role|invalid_password|not_local|invalid_current_password|same_password|invalid_oidc_settings|oidc_test_failed`; `auth_error` do login: `unauthorized`, `not_configured`.
+- Códigos de erro: `403 forbidden`, `403 password_change_required`, `409 last_active_admin`, `409 username_taken`, `409 credentials_changed`, `404 not_found`, `400 invalid_request|invalid_username|invalid_role|invalid_password|not_local|invalid_current_password|same_password|invalid_oidc_settings|oidc_test_failed`; `auth_error` do login: `unauthorized`, `not_configured`.
 - Respostas de erro de domínio: `{ success: false, error: <código>, message: <texto em português> }`.
 - Rotas do frontend: `/settings` → `/settings/users`, `/settings/email`, `/settings/oidc`; troca de senha em `/account/password`.
 - Textos da interface em português. Rótulos exatos: barra superior "Novo Envio", "Dashboard", "Configurações"; menu da conta "Minha senha"; menu lateral "Usuários", "E-mail", "Login intranet"; origem "Local"/"Intranet"; perfis "Administrador"/"Operador".
 - Segredos (senha Mailgrid, token do webhook, client secret OIDC, hashes) nunca aparecem em respostas da API nem em logs. Campo de segredo vazio ao salvar mantém o valor atual.
-- Sem cache de configurações: Mailgrid e OIDC são lidos do banco a cada uso.
+- Sem cache de configurações: Mailgrid e OIDC são lidos do banco no início de cada operação e propagados como snapshot imutável.
 - Nenhuma dependência nova (backend ou frontend).
 - Commits convencionais com `[Story 4.2]`; push é exclusivo do @devops.
 
 ## Review Focus
+
+Prioridade QA: issuer + sub (Task 1), snapshot e binding legado (Tasks 3–4), último admin pelo CLI/concorrência (Task 2), reset × troca/login (Tasks 5–6), secrets ilegíveis e validação disabled (Tasks 3/6). Cada cenário tem ciclo de teste nas decisões da task responsável.
 
 1. **Sessão OIDC aberta antes do deploy (sem linha em `users`).** Esperado: o usuário é registrado como `operator` na primeira requisição e segue usando o sistema. Teste: "registers users of sessions opened before Story 4.2" (Task 4).
 2. **Admin rebaixando ou desativando a si mesmo.** Esperado: permitido se houver outro admin ativo; recusado com 409 se for o último. Testes: "rejects demoting the last active admin" e "allows demoting an admin when another admin remains" (Task 2).
@@ -34,9 +61,31 @@
 
 ---
 
+## Decisões após revisão QA (2026-10-10)
+
+Esta revisão substitui os corpos de implementação anteriores por contratos e testes. Ler as decisões complementares junto com Interfaces antes de executar cada task. A revisão documental original antecedeu a implementação. A story agora está InProgress; consultar o checkpoint acima para tarefas aprovadas e pendências.
+
+- Identidade OIDC: `(issuer, sub)`, sem unir contas por e-mail. Um issuer diferente cria outra conta `operator`, preservando perfis/situação da identidade original.
+- Login, callback, refresh e logout usam um snapshot por operação. Uma configuração alterada não pode enviar segredos ou tokens antigos a endpoints novos.
+- API e CLI compartilham a proteção do último admin. A invariável deve valer com transações concorrentes.
+- Reset de senha incrementa `credential_version` no mesmo UPDATE da senha. Sessões carregam a versão autenticada; comparar com o banco em cada requisição torna revogação independente do índice Redis.
+- Troca voluntária faz compare-and-swap do hash e da versão verificados; não incrementa a versão nem revoga todas as sessões. Reset concorrente vence uma troca baseada em credenciais antigas.
+- Salvar OIDC desativado valida campos preenchidos e restrições ambientais. Segredo ilegível na importação inicial aborta a importação daquela seção sem persistir vazio; a próxima inicialização pode tentar novamente.
+
+## Decisões da retomada (2026-10-10, sessão de grilling)
+
+- Task 7: correção com contador de geração (`useRef`) no `AuthProvider`; `clearUser`, `auth-invalid`, `logout` e login aceito avançam a geração; só o refresh corrente grava conta/erros/loading.
+- Task 8: cada usuário local tem formulário inline "Definir senha" (senha + confirmação; sucesso em `role=status`, erro do backend em `role=alert`) coberto por e2e.
+- Task 8: alteração de perfil/situação no próprio usuário chama `refresh()`; os guards redirecionam após auto-rebaixamento/desativação (e2e).
+- Task 8: e2e com viewport 375px confirma abas visíveis e menu lateral oculto (AC23).
+- Task 10: status final `InReview` (não "Ready for Review"), Change Log 0.4; `Done` é do @qa; push/PR do @devops.
+- Artefatos `frontend/test-results` são restaurados e não commitados.
+- `InReview` aceito com OIDC real, deploy e CodeRabbit não verificados, registrados como limitações explícitas.
+
 ## File Structure
 
 **Backend — criar**
+- `backend/src/services/oidcConfiguration.ts` (+ teste) — fingerprint puro e tipos de binding/context.
 - `backend/src/migrations/20261010120000_users_roles.ts` — renomeia `local_users` → `users` e adiciona colunas de perfil/origem.
 - `backend/src/repositories/userRepository.ts` — substitui `localUserRepository.ts` (renomeado com `git mv`): tipos `User`, `LocalUser`, `UserStore`, erros de acesso.
 - `backend/src/repositories/userRepository.integration.test.ts` — substitui o teste de integração de `local_users`.
@@ -47,6 +96,7 @@
 - `backend/src/routes/userAdminRoutes.ts` (+ teste) — `/api/admin/users`.
 
 **Backend — modificar**
+- `services/authSessionService.ts` (+ teste) — issuer/fingerprint OIDC, credentialVersion local e refresh por context.
 - `services/databaseService.ts`, `services/localAuthService.ts`, `services/localUserAdminService.ts`, `scripts/manageLocalAdmin.ts`, `controllers/localAuthController.ts` e testes relacionados (tipos e nomes do repositório).
 - `models/SystemConfig.ts`, `repositories/systemConfigRepository.ts`, `services/configService.ts`, `queue/processors.ts`.
 - `services/oidcService.ts` (+ teste), `app.ts`.
@@ -66,16 +116,39 @@
 
 **Banco de teste (integração):** quando uma task pede Postgres, use um container descartável e remova-o no fim:
 ```bash
-docker run -d --name bulkmail-sdd-it-pg -e POSTGRES_USER=bulkmail -e POSTGRES_PASSWORD=bulkmail123 -e POSTGRES_DB=bulkmail -p 55432:5432 postgres:18.4-alpine
-until docker exec bulkmail-sdd-it-pg pg_isready -U bulkmail -d bulkmail; do sleep 1; done
-(cd backend && POSTGRES_PORT=55432 npm run migrate)
-# ... RUN_DATABASE_INTEGRATION=true POSTGRES_PORT=55432 npx jest <arquivo>
-docker rm -f bulkmail-sdd-it-pg
+rtk docker run -d --name bulkmail-sdd-it-pg -e POSTGRES_USER=bulkmail -e POSTGRES_PASSWORD=bulkmail123 -e POSTGRES_DB=bulkmail -p 55432:5432 postgres:18.4-alpine
+until rtk docker exec bulkmail-sdd-it-pg pg_isready -U bulkmail -d bulkmail; do sleep 1; done
+(cd backend && POSTGRES_PORT=55432 rtk npm run migrate)
+# ... RUN_DATABASE_INTEGRATION=true POSTGRES_PORT=55432 rtk proxy npx jest <arquivo>
+rtk docker rm -f bulkmail-sdd-it-pg
 ```
 
 ---
 
 ### Task 1: Tabela `users` e repositório (AC 1, 12)
+
+**Contratos complementares — identidade e credenciais (AC1, 7, 10):**
+- Migration adiciona `oidc_issuer` nullable e `credential_version integer NOT NULL DEFAULT 0`. Índice único composto `(oidc_issuer, oidc_sub)`; CHECK exige ambos para OIDC e username/password para local. Não criar UNIQUE de `oidc_sub` isolado.
+- `User` expõe internamente `oidcIssuer: string | null` e `credentialVersion: number`; nunca retornar hash/versão pelo DTO público.
+- `findByOidcSub(issuer: string, sub: string): Promise<User | null>` e `upsertOidcUser(input: { issuer: string; sub: string; email?: string; name?: string }): Promise<User>` usam a chave composta. Upsert só altera nome/e-mail; preserva perfil, disabled e versão.
+- `updatePassword(id: string, passwordHash: string, mustChangePassword?: boolean): Promise<void>` é reset: incrementa versão atomicamente. CLI mantém `mustChangePassword=false`; API usa true.
+- `changePasswordIfCurrent(id: string, expectedHash: string, expectedVersion: number, nextHash: string): Promise<boolean>` faz UPDATE condicional, limpa must-change e não incrementa versão. Nenhuma outra operação escreve senha diretamente.
+
+- [x] **QA Step 1: Escrever teste de isolamento por issuer** em `userRepository.integration.test.ts`:
+```ts
+it('isolates the same subject across issuers', async () => {
+  const a = await repository.upsertOidcUser({ issuer: 'https://a.example', sub: 'same' });
+  await database('users').where({ id: a.id }).update({ role: 'admin' });
+  const b = await repository.upsertOidcUser({ issuer: 'https://b.example', sub: 'same' });
+  expect(b.id).not.toBe(a.id);
+  expect(b.role).toBe('operator');
+  expect((await repository.findByOidcSub('https://a.example', 'same'))?.role).toBe('admin');
+});
+```
+Limpar as duas contas em afterAll. Acrescentar preservação dos admins existentes, CHECK rejeitando issuer ausente e reset incrementando versão.
+- [x] **QA Step 2:** executar `rtk proxy npx jest src/repositories/userRepository.integration.test.ts --runInBand` em backend com `RUN_DATABASE_INTEGRATION=true` e Postgres descartável; FAIL antes das alterações.
+- [x] **QA Step 3:** implementar migration, mapeamento e contratos acima; adaptar mocks e consumidores locais ao campo versão.
+- [x] **QA Step 4:** repetir teste com PASS e executar `rtk proxy npx tsc --noEmit` em backend.
 
 **Files:**
 - Create: `backend/src/migrations/20261010120000_users_roles.ts`
@@ -86,42 +159,16 @@ docker rm -f bulkmail-sdd-it-pg
 
 **Interfaces:**
 - Produces:
-  ```ts
-  export type UserRole = 'admin' | 'operator';
-  export type UserProvider = 'local' | 'oidc';
-  export interface User {
-    id: string; provider: UserProvider; role: UserRole;
-    username: string | null; oidcSub: string | null; email: string | null; name: string | null;
-    passwordHash: string | null; mustChangePassword: boolean;
-    disabledAt: Date | null; lastLoginAt: Date | null;
-  }
-  export interface LocalUser extends User { provider: 'local'; username: string; passwordHash: string }
-  export interface LocalUserStore {
-    findByUsername(username: string): Promise<LocalUser | null>;
-    create(input: { username: string; passwordHash: string; role?: UserRole; mustChangePassword?: boolean }): Promise<LocalUser>;
-    updatePassword(id: string, passwordHash: string, mustChangePassword?: boolean): Promise<void>;
-    setDisabled(id: string, disabled: boolean): Promise<void>;
-    recordLogin(id: string): Promise<void>;
-  }
-  export interface UserStore extends LocalUserStore {
-    findById(id: string): Promise<User | null>;
-    findByOidcSub(sub: string): Promise<User | null>;
-    upsertOidcUser(input: { sub: string; email?: string; name?: string }): Promise<User>;
-    list(): Promise<User[]>;
-  }
-  export class UserRepository implements UserStore
-  export const createUserRepository: (db: Knex) => UserRepository
-  // databaseService.ts (substitui getLocalUserRepository)
-  export const getUserRepository: () => UserRepository
-  ```
+  Implementar no arquivo indicado conforme Interfaces, contratos complementares e testes desta task.
+
   - `create` sem `role` grava `admin`; sem `mustChangePassword` grava `false`. `updatePassword` sem o terceiro argumento grava `must_change_password = false`.
   - `upsertOidcUser` cria com `role = 'operator'` ou atualiza só `email`/`name` de quem já existe.
 
-- [ ] **Step 1: Rename files and write the failing integration test**
+- [x] **Step 1: Rename files and write the failing integration test**
 
 ```bash
-git mv backend/src/repositories/localUserRepository.ts backend/src/repositories/userRepository.ts
-git mv backend/src/repositories/localUserRepository.integration.test.ts backend/src/repositories/userRepository.integration.test.ts
+rtk git mv backend/src/repositories/localUserRepository.ts backend/src/repositories/userRepository.ts
+rtk git mv backend/src/repositories/localUserRepository.integration.test.ts backend/src/repositories/userRepository.integration.test.ts
 ```
 
 Substituir todo o conteúdo do teste:
@@ -163,7 +210,7 @@ describeDatabase('UserRepository PostgreSQL integration', () => {
   it('creates local admins by default and finds them by username and id', async () => {
     const created = await repository.create({ username, passwordHash: 'hash-1' });
     expect(created).toMatchObject({
-      provider: 'local', role: 'admin', username, passwordHash: 'hash-1', mustChangePassword: false, oidcSub: null,
+      provider: 'local', role: 'admin', username, passwordHash: 'hash-1', mustChangePassword: false, oidcSub: null, oidcIssuer: null, credentialVersion: 0,
     });
     await expect(repository.findByUsername(username)).resolves.toMatchObject({ id: created.id });
     await expect(repository.findById(created.id)).resolves.toMatchObject({ username });
@@ -178,12 +225,12 @@ describeDatabase('UserRepository PostgreSQL integration', () => {
   });
 
   it('registers intranet users as operators and refreshes their name and e-mail', async () => {
-    const first = await repository.upsertOidcUser({ sub, email: 'old@crefito.gov.br', name: 'Nome Antigo' });
+    const first = await repository.upsertOidcUser({ issuer: 'https://intranet.example', sub, email: 'old@crefito.gov.br', name: 'Nome Antigo' });
     expect(first).toMatchObject({ provider: 'oidc', role: 'operator', oidcSub: sub, username: null, passwordHash: null });
 
-    const second = await repository.upsertOidcUser({ sub, email: 'new@crefito.gov.br', name: 'Nome Novo' });
+    const second = await repository.upsertOidcUser({ issuer: 'https://intranet.example', sub, email: 'new@crefito.gov.br', name: 'Nome Novo' });
     expect(second).toMatchObject({ id: first.id, email: 'new@crefito.gov.br', name: 'Nome Novo', role: 'operator' });
-    await expect(repository.findByOidcSub(sub)).resolves.toMatchObject({ id: first.id });
+    await expect(repository.findByOidcSub('https://intranet.example', sub)).resolves.toMatchObject({ id: first.id });
   });
 
   it('does not find intranet users by username', async () => {
@@ -202,214 +249,23 @@ describeDatabase('UserRepository PostgreSQL integration', () => {
 });
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 Com o Postgres descartável (seção "Banco de teste" acima, sem rodar a migration nova ainda):
 Run: `cd backend && RUN_DATABASE_INTEGRATION=true POSTGRES_PORT=55432 npx jest src/repositories/userRepository.integration.test.ts`
 Expected: FAIL — `UserRepository` não exportado / tabela `users` inexistente.
 
-- [ ] **Step 3: Write the migration**
+- [x] **Step 3: Write the migration**
 
-```ts
-// backend/src/migrations/20261010120000_users_roles.ts
-import type { Knex } from "knex";
+Implementar no arquivo indicado conforme Interfaces e decisões de segurança desta task.
 
-export async function up(knex: Knex): Promise<void> {
-  await knex.schema.renameTable("local_users", "users");
-  await knex.raw("ALTER TABLE users RENAME CONSTRAINT local_users_username_lowercase TO users_username_lowercase");
-  await knex.raw("ALTER TRIGGER update_local_users_updated_at ON users RENAME TO update_users_updated_at");
 
-  await knex.schema.alterTable("users", (table) => {
-    table.string("provider", 16).notNullable().defaultTo("local");
-    // Existing rows were created by the admin CLI, so they become admins.
-    table.string("role", 16).notNullable().defaultTo("admin");
-    table.text("oidc_sub").nullable().unique();
-    table.text("email").nullable();
-    table.text("name").nullable();
-    table.boolean("must_change_password").notNullable().defaultTo(false);
-  });
+- [x] **Step 4: Rewrite the repository**
 
-  await knex.raw("ALTER TABLE users ALTER COLUMN role SET DEFAULT 'operator'");
-  await knex.raw("ALTER TABLE users ALTER COLUMN username DROP NOT NULL");
-  await knex.raw("ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL");
-  await knex.raw("ALTER TABLE users ADD CONSTRAINT users_provider_check CHECK (provider IN ('local', 'oidc'))");
-  await knex.raw("ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('admin', 'operator'))");
-  await knex.raw(`
-    ALTER TABLE users ADD CONSTRAINT users_identity_check CHECK (
-      (provider = 'local' AND username IS NOT NULL AND password_hash IS NOT NULL AND oidc_sub IS NULL)
-      OR (provider = 'oidc' AND oidc_sub IS NOT NULL AND username IS NULL AND password_hash IS NULL)
-    )
-  `);
-  await knex.raw("COMMENT ON TABLE users IS 'Local and intranet (OIDC) accounts with roles'");
-}
+Implementar no arquivo indicado conforme Interfaces e decisões de segurança desta task.
 
-export async function down(knex: Knex): Promise<void> {
-  await knex("users").where({ provider: "oidc" }).delete();
-  await knex.raw("ALTER TABLE users DROP CONSTRAINT users_identity_check");
-  await knex.raw("ALTER TABLE users DROP CONSTRAINT users_role_check");
-  await knex.raw("ALTER TABLE users DROP CONSTRAINT users_provider_check");
-  await knex.raw("ALTER TABLE users ALTER COLUMN password_hash SET NOT NULL");
-  await knex.raw("ALTER TABLE users ALTER COLUMN username SET NOT NULL");
-  await knex.schema.alterTable("users", (table) => {
-    table.dropColumns("provider", "role", "oidc_sub", "email", "name", "must_change_password");
-  });
-  await knex.raw("ALTER TRIGGER update_users_updated_at ON users RENAME TO update_local_users_updated_at");
-  await knex.raw("ALTER TABLE users RENAME CONSTRAINT users_username_lowercase TO local_users_username_lowercase");
-  await knex.schema.renameTable("users", "local_users");
-}
-```
 
-- [ ] **Step 4: Rewrite the repository**
-
-```ts
-// backend/src/repositories/userRepository.ts
-/**
- * User Repository
- * Persistence for local and intranet (OIDC) accounts
- */
-import type { Knex } from 'knex';
-import { v4 as uuidv4 } from 'uuid';
-
-export type UserRole = 'admin' | 'operator';
-export type UserProvider = 'local' | 'oidc';
-
-export interface User {
-  id: string;
-  provider: UserProvider;
-  role: UserRole;
-  username: string | null;
-  oidcSub: string | null;
-  email: string | null;
-  name: string | null;
-  passwordHash: string | null;
-  mustChangePassword: boolean;
-  disabledAt: Date | null;
-  lastLoginAt: Date | null;
-}
-
-export interface LocalUser extends User {
-  provider: 'local';
-  username: string;
-  passwordHash: string;
-}
-
-export interface LocalUserStore {
-  findByUsername(username: string): Promise<LocalUser | null>;
-  create(input: { username: string; passwordHash: string; role?: UserRole; mustChangePassword?: boolean }): Promise<LocalUser>;
-  updatePassword(id: string, passwordHash: string, mustChangePassword?: boolean): Promise<void>;
-  setDisabled(id: string, disabled: boolean): Promise<void>;
-  recordLogin(id: string): Promise<void>;
-}
-
-export interface UserStore extends LocalUserStore {
-  findById(id: string): Promise<User | null>;
-  findByOidcSub(sub: string): Promise<User | null>;
-  upsertOidcUser(input: { sub: string; email?: string; name?: string }): Promise<User>;
-  list(): Promise<User[]>;
-}
-
-interface UserRow {
-  id: string;
-  provider: UserProvider;
-  role: UserRole;
-  username: string | null;
-  oidc_sub: string | null;
-  email: string | null;
-  name: string | null;
-  password_hash: string | null;
-  must_change_password: boolean;
-  disabled_at: Date | null;
-  last_login_at: Date | null;
-}
-
-const fromRow = (row: UserRow): User => ({
-  id: row.id,
-  provider: row.provider,
-  role: row.role,
-  username: row.username,
-  oidcSub: row.oidc_sub,
-  email: row.email,
-  name: row.name,
-  passwordHash: row.password_hash,
-  mustChangePassword: row.must_change_password,
-  disabledAt: row.disabled_at,
-  lastLoginAt: row.last_login_at,
-});
-
-export class UserRepository implements UserStore {
-  private readonly db: Knex;
-
-  constructor(db: Knex) {
-    this.db = db;
-  }
-
-  async findById(id: string): Promise<User | null> {
-    const row = await this.db<UserRow>('users').where({ id }).first();
-    return row ? fromRow(row) : null;
-  }
-
-  async findByUsername(username: string): Promise<LocalUser | null> {
-    const row = await this.db<UserRow>('users').where({ username, provider: 'local' }).first();
-    return row ? (fromRow(row) as LocalUser) : null;
-  }
-
-  async findByOidcSub(sub: string): Promise<User | null> {
-    const row = await this.db<UserRow>('users').where({ oidc_sub: sub }).first();
-    return row ? fromRow(row) : null;
-  }
-
-  async create(input: { username: string; passwordHash: string; role?: UserRole; mustChangePassword?: boolean }): Promise<LocalUser> {
-    const [row] = await this.db<UserRow>('users')
-      .insert({
-        id: uuidv4(),
-        provider: 'local',
-        role: input.role ?? 'admin',
-        username: input.username,
-        password_hash: input.passwordHash,
-        must_change_password: input.mustChangePassword ?? false,
-      })
-      .returning('*');
-    return fromRow(row as UserRow) as LocalUser;
-  }
-
-  async upsertOidcUser(input: { sub: string; email?: string; name?: string }): Promise<User> {
-    const [row] = await this.db<UserRow>('users')
-      .insert({
-        id: uuidv4(),
-        provider: 'oidc',
-        role: 'operator',
-        oidc_sub: input.sub,
-        email: input.email ?? null,
-        name: input.name ?? null,
-      })
-      .onConflict('oidc_sub')
-      .merge({ email: input.email ?? null, name: input.name ?? null })
-      .returning('*');
-    return fromRow(row as UserRow);
-  }
-
-  async list(): Promise<User[]> {
-    const rows = await this.db<UserRow>('users').select('*').orderByRaw('coalesce(name, username, oidc_sub)');
-    return rows.map((row) => fromRow(row as UserRow));
-  }
-
-  async updatePassword(id: string, passwordHash: string, mustChangePassword = false): Promise<void> {
-    await this.db('users').where({ id }).update({ password_hash: passwordHash, must_change_password: mustChangePassword });
-  }
-
-  async setDisabled(id: string, disabled: boolean): Promise<void> {
-    await this.db('users').where({ id }).update({ disabled_at: disabled ? this.db.fn.now() : null });
-  }
-
-  async recordLogin(id: string): Promise<void> {
-    await this.db('users').where({ id }).update({ last_login_at: this.db.fn.now() });
-  }
-}
-
-export const createUserRepository = (db: Knex): UserRepository => new UserRepository(db);
-```
-
-- [ ] **Step 5: Update consumers**
+- [x] **Step 5: Update consumers**
 
 `backend/src/services/databaseService.ts`: trocar o import de `localUserRepository` por
 
@@ -422,19 +278,8 @@ import {
 
 renomear o singleton `localUserRepository` para `userRepository` (tipo `UserRepository | null`, criado com `createUserRepository(db)` e zerado no shutdown) e o getter para:
 
-```ts
-/**
- * Get UserRepository instance
- */
-export const getUserRepository = (): UserRepository => {
-  if (!userRepository) {
-    throw new Error(
-      "Database not initialized. Call initializeDatabase() first.",
-    );
-  }
-  return userRepository;
-};
-```
+Implementar no arquivo indicado conforme Interfaces, contratos complementares e testes desta task.
+
 
 `backend/src/routes/authRoutes.ts`: `import { getUserRepository } from '../services/databaseService';` e `users: getUserRepository(),` no lugar de `getLocalUserRepository()`.
 
@@ -442,31 +287,24 @@ export const getUserRepository = (): UserRepository => {
 
 `backend/src/services/localUserAdminService.ts` — o CLI cria admins sem troca obrigatória e o reset pelo CLI limpa a obrigação:
 
-```ts
-      return deps.users.create({
-        username: normalized,
-        passwordHash: await deps.hash(password),
-        role: 'admin',
-        mustChangePassword: false,
-      });
-```
+Implementar no arquivo indicado conforme Interfaces, contratos complementares e testes desta task.
 
-```ts
-      await deps.users.updatePassword(user.id, await deps.hash(password), false);
-```
+
+Implementar no arquivo indicado conforme Interfaces, contratos complementares e testes desta task.
+
 
 `backend/src/scripts/manageLocalAdmin.ts`: `import { createUserRepository } from '../repositories/userRepository';` e `users: createUserRepository(db),`.
 
 `backend/package.json`, script `test:integration`: trocar `src/repositories/localUserRepository.integration.test.ts` por `src/repositories/userRepository.integration.test.ts`.
 
-- [ ] **Step 6: Update unit-test fixtures to the new `LocalUser` shape**
+- [x] **Step 6: Update unit-test fixtures to the new `LocalUser` shape**
 
 Em `localAuthService.test.ts` (`activeAdmin`) e `localAuthController.test.ts` (`admin`), completar os objetos com:
 
 ```ts
   provider: 'local' as const,
   role: 'admin' as const,
-  oidcSub: null,
+  oidcSub: null, oidcIssuer: null, credentialVersion: 0,
   email: null,
   name: null,
   mustChangePassword: false,
@@ -474,31 +312,8 @@ Em `localAuthService.test.ts` (`activeAdmin`) e `localAuthController.test.ts` (`
 
 Em `localUserAdminService.test.ts`, a classe `InMemoryLocalUsers` passa a criar:
 
-```ts
-  async create(input: { username: string; passwordHash: string; role?: UserRole; mustChangePassword?: boolean }): Promise<LocalUser> {
-    const user: LocalUser = {
-      id: `id-${this.users.size + 1}`,
-      provider: 'local',
-      role: input.role ?? 'admin',
-      username: input.username,
-      passwordHash: input.passwordHash,
-      oidcSub: null,
-      email: null,
-      name: null,
-      mustChangePassword: input.mustChangePassword ?? false,
-      disabledAt: null,
-      lastLoginAt: null,
-    };
-    this.users.set(user.id, user);
-    return user;
-  }
+Implementar no arquivo indicado conforme Interfaces, contratos complementares e testes desta task.
 
-  async updatePassword(id: string, passwordHash: string, mustChangePassword = false): Promise<void> {
-    const user = this.byId(id);
-    user.passwordHash = passwordHash;
-    user.mustChangePassword = mustChangePassword;
-  }
-```
 
 (importando `LocalUser`, `LocalUserStore`, `UserRole` de `'../repositories/userRepository'`), e acrescentar ao teste "creates a user with a normalized username and hashed password":
 
@@ -506,25 +321,39 @@ Em `localUserAdminService.test.ts`, a classe `InMemoryLocalUsers` passa a criar:
     expect(created).toMatchObject({ role: 'admin', mustChangePassword: false });
 ```
 
-- [ ] **Step 7: Migrate and run tests**
+- [x] **Step 7: Migrate and run tests**
 
 Run: `cd backend && POSTGRES_PORT=55432 npm run migrate && RUN_DATABASE_INTEGRATION=true POSTGRES_PORT=55432 npx jest src/repositories/userRepository.integration.test.ts`
-Expected: migration `20261010120000_users_roles` aplicada; 6 testes PASS.
+Expected: migration `20261010120000_users_roles` aplicada; todos os testes PASS, incluindo isolamento issuer + sub e versões de credenciais.
 Run: `cd backend && POSTGRES_PORT=55432 npx knex migrate:rollback && POSTGRES_PORT=55432 npm run migrate`
 Expected: rollback e reaplicação sem erro (o `down` funciona).
 Run: `cd backend && npx tsc --noEmit && npx jest && npx eslint src/repositories src/services src/scripts src/routes src/migrations`
 Expected: sem erros; suíte unitária verde.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
-git add -A backend/src/repositories backend/src/migrations/20261010120000_users_roles.ts backend/src/services backend/src/scripts/manageLocalAdmin.ts backend/src/routes/authRoutes.ts backend/src/controllers/localAuthController.test.ts backend/package.json
-git commit -m "feat: unify local and intranet accounts in users table with roles [Story 4.2]"
+rtk git add -A backend/src/repositories backend/src/migrations/20261010120000_users_roles.ts backend/src/services backend/src/scripts/manageLocalAdmin.ts backend/src/routes/authRoutes.ts backend/src/controllers/localAuthController.test.ts backend/package.json
+rtk git commit -m "feat: unify local and intranet accounts in users table with roles [Story 4.2]"
 ```
 
 ---
 
 ### Task 2: Alteração de perfil/situação protegida (AC 6)
+
+**Contratos complementares — API e CLI (AC6, 12):**
+- Modificar também `backend/src/services/localUserAdminService.ts`, seu teste e `backend/src/scripts/manageLocalAdmin.ts`.
+- `setDisabled(id: string, disabled: boolean): Promise<void>` delega a `updateAccess(id, { disabled })`; não manter UPDATE alternativo.
+- `updateAccess(id: string, change: { role?: UserRole; disabled?: boolean }): Promise<User>` serializa as mutações com `SELECT pg_advisory_xact_lock(420002)` dentro da transação, bloqueia a linha alvo, lê o estado atual e só recusa a remoção de um admin ativo quando nenhum outro restar. Retorna `LastActiveAdminError`; ausência retorna `UserNotFoundError`. Promoção/reativação de operator continua possível mesmo se instalação ainda não possui admin.
+- O CLI traduz último admin para mensagem portuguesa e exit code não zero. Não revoga sessões se a alteração foi recusada.
+
+- [x] **QA Step 1:** substituir teste somente sequencial por caso concorrente em `userRepository.integration.test.ts`; fixture isolada com exatamente dois admins ativos e pool >=2, sem transação externa envolvendo os dois calls:
+Implementar no arquivo indicado conforme Interfaces, contratos complementares e testes desta task.
+
+Rodar em banco descartável, preservar/limpar fixture. Testar também self-demotion com outro admin e CLI tentando desativar último admin.
+- [x] **QA Step 2:** rodar teste de integração e `rtk proxy npx jest src/services/localUserAdminService.test.ts`; FAIL antes da proteção.
+- [x] **QA Step 3:** implementar operação comum e adaptação CLI; remover o algoritmo anterior de lock apenas nas linhas de admins.
+- [x] **QA Step 4:** repetir testes com PASS e typecheck. Incluir arquivos CLI no commit desta task.
 
 **Files:**
 - Modify: `backend/src/repositories/userRepository.ts`
@@ -533,15 +362,11 @@ git commit -m "feat: unify local and intranet accounts in users table with roles
 **Interfaces:**
 - Consumes: `UserRepository`, `User`, `UserRole` (Task 1).
 - Produces:
-  ```ts
-  export class LastActiveAdminError extends Error {}
-  export class UserNotFoundError extends Error {}
-  // added to UserStore and UserRepository:
-  updateAccess(id: string, change: { role?: UserRole; disabled?: boolean }): Promise<User>;
-  ```
+  Implementar no arquivo indicado conforme Interfaces, contratos complementares e testes desta task.
+
   - Em transação: trava as linhas de admins ativos (`FOR UPDATE`), aplica a mudança e, se não restar nenhum admin ativo, lança `LastActiveAdminError` (rollback). Id inexistente → `UserNotFoundError`. `change` vazio → devolve o usuário sem alterar.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Acrescentar ao `describeDatabase` de `userRepository.integration.test.ts` (importar `LastActiveAdminError`, `UserNotFoundError`):
 
@@ -601,28 +426,17 @@ Acrescentar ao `describeDatabase` de `userRepository.integration.test.ts` (impor
   });
 ```
 
-- [ ] **Step 2: Run them to verify they fail**
+- [x] **Step 2: Run them to verify they fail**
 
 Run: `cd backend && RUN_DATABASE_INTEGRATION=true POSTGRES_PORT=55432 npx jest src/repositories/userRepository.integration.test.ts`
 Expected: FAIL — `updateAccess` / `LastActiveAdminError` não existem.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Em `userRepository.ts`, após os tipos:
 
-```ts
-export class LastActiveAdminError extends Error {
-  constructor() {
-    super('At least one active admin must remain');
-  }
-}
+Implementar no arquivo indicado conforme Interfaces, contratos complementares e testes desta task.
 
-export class UserNotFoundError extends Error {
-  constructor() {
-    super('User not found');
-  }
-}
-```
 
 Acrescentar ao `UserStore`:
 
@@ -632,47 +446,40 @@ Acrescentar ao `UserStore`:
 
 E ao `UserRepository`:
 
-```ts
-  async updateAccess(id: string, change: { role?: UserRole; disabled?: boolean }): Promise<User> {
-    return this.db.transaction(async (trx) => {
-      // Locking every active admin serializes concurrent changes, so two admins
-      // cannot demote or disable each other at the same time.
-      await trx.raw("SELECT id FROM users WHERE role = 'admin' AND disabled_at IS NULL FOR UPDATE");
+Implementar no arquivo indicado conforme Interfaces, contratos complementares e testes desta task.
 
-      const patch: Record<string, unknown> = {};
-      if (change.role !== undefined) patch.role = change.role;
-      if (change.disabled !== undefined) patch.disabled_at = change.disabled ? trx.fn.now() : null;
-
-      const [row] = Object.keys(patch).length > 0
-        ? await trx<UserRow>('users').where({ id }).update(patch).returning('*')
-        : await trx<UserRow>('users').where({ id }).select('*');
-      if (!row) throw new UserNotFoundError();
-
-      const [{ count }] = await trx('users').where({ role: 'admin' }).whereNull('disabled_at').count({ count: '*' });
-      if (Number(count) === 0) throw new LastActiveAdminError();
-      return fromRow(row as UserRow);
-    });
-  }
-```
 
 Se o `tsc` reclamar do tipo de `count`, use `.count<{ count: string }[]>({ count: '*' })`.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `cd backend && RUN_DATABASE_INTEGRATION=true POSTGRES_PORT=55432 npx jest src/repositories/userRepository.integration.test.ts && npx tsc --noEmit && npx eslint src/repositories`
-Expected: 11 testes PASS; sem erros.
-`localUserAdminService.test.ts` usa `LocalUserStore` (sem `updateAccess`), então continua compilando; confirme com `npx jest`.
+Expected: todos os testes PASS; sem erros.
+`localUserAdminService.test.ts` deve comprovar que `setDisabled` delega à operação protegida e traduz `LastActiveAdminError`; confirme também reset com incremento de versão usando `npx jest`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
-git add backend/src/repositories/userRepository.ts backend/src/repositories/userRepository.integration.test.ts
-git commit -m "feat: guard role and status changes so an active admin always remains [Story 4.2]"
+rtk git add backend/src/repositories/userRepository.ts backend/src/repositories/userRepository.integration.test.ts
+rtk git commit -m "feat: guard role and status changes so an active admin always remains [Story 4.2]"
 ```
 
 ---
 
 ### Task 3: Configurações do Mailgrid e OIDC no banco (AC 13, 19)
+
+**Contratos complementares — importação e legado (AC7, 19):**
+- `OidcSettings` permanece `{ enabled, issuer, clientId, clientSecret, backchannelOrigin }`. Armazenar na chave separada `oidc_legacy_binding` o `{ issuer: string; configurationFingerprint: string }` da configuração original. Binding é interno, insert-only e não aparece na API.
+- Na primeira inicialização, importar OIDC e gravar binding no mesmo transaction. Se `oidc` já existir, derivar binding dessa configuração armazenada, nunca do ambiente. Não recalcular binding após salvar OIDC. Sem configuração, não criar binding.
+- Produzir `getLegacyOidcBinding(): Promise<{ issuer: string; configurationFingerprint: string } | null>` em ConfigService. O helper puro `oidcConfigurationFingerprint(settings: OidcSettings, sessionEncryptionKey: Buffer): string` é produzido nesta task; importação e Task 4 o consomem, sem discovery ou dependência circular. Extrair loader da chave para este módulo e reexportar em oidcService se necessário, sem mudar criptografia de refresh tokens existente.
+- `environmentSecret(env, name): string` prioriza variável já exportada pelo entrypoint; se só `_FILE` existir e leitura falhar, lançar erro com nome da variável, sem conteúdo/valor. Consultar existência da seção no banco antes de ler os secrets antigos: configuração existente ignora completamente ambiente e arquivos.
+- `insertIfAbsent` continua `ON CONFLICT DO NOTHING`. Preparar/validar todos os campos e criptografar antes do insert; falha não pode gravar linha vazia. Falha operacional interrompe startup, log sanitizado e retry no próximo start.
+- Files adicionais: `backend/src/services/oidcConfiguration.ts` (helper fingerprint puro, criado nesta task), `backend/src/services/oidcConfiguration.test.ts`.
+
+- [x] **QA Step 1:** em configService.test, fornecer `_FILE` inexistente sem valor exportado, esperar rejeição e zero inserts; corrigir reader mock e esperar importação na próxima tentativa. Com seção existente, mesmo arquivo ilegível não deve ser lido. Comparar binding antes/depois de alteração de issuer: permanece original.
+- [x] **QA Step 2:** rodar `rtk proxy npx jest src/services/configService.test.ts`; FAIL antes da mudança.
+- [x] **QA Step 3:** implementar importação transacional e binding; `oidcConfigurationFingerprint` usa HMAC-SHA256 com chave obtida pelo mesmo loader de `OIDC_SESSION_ENCRYPTION_KEY`, sobre JSON de tupla estável `[enabled, issuer, clientId, clientSecret, backchannelOrigin]`. Não incluir APP_ORIGIN (fixo por ambiente). Não logar/expor fingerprint.
+- [x] **QA Step 4:** repetir teste e integração `systemConfigRepository.integration.test.ts`. Manter teste real `Promise.all` de duas importações; uma grava, outra não falha, binding consistente com a vencedora.
 
 **Files:**
 - Modify: `backend/src/models/SystemConfig.ts`, `backend/src/repositories/systemConfigRepository.ts`, `backend/src/services/configService.ts`, `backend/src/queue/processors.ts`, `backend/src/app.ts`
@@ -693,7 +500,7 @@ git commit -m "feat: guard role and status changes so an active admin always rem
   ```
   - Chaves na tabela `configurations`: `smtp` (existente) e `oidc`.
 
-- [ ] **Step 1: Write the failing unit tests**
+- [x] **Step 1: Write the failing unit tests**
 
 Em `backend/src/services/configService.test.ts`, substituir os testes que esperavam fallback para o ambiente (qualquer `it` que configure `process.env.MAILGRID_*` / `SMTP_*` esperando esses valores) por estes, e acrescentar os demais dentro do `describe('ConfigService')`:
 
@@ -761,7 +568,7 @@ Em `backend/src/services/configService.test.ts`, substituir os testes que espera
 
 (O `jest.mock` automático do repositório já cria `insertIfAbsent` como `jest.fn()` assim que o método existir na classe.)
 
-- [ ] **Step 2: Write the failing integration test**
+- [x] **Step 2: Write the failing integration test**
 
 ```ts
 // backend/src/repositories/systemConfigRepository.integration.test.ts
@@ -809,14 +616,14 @@ describeDatabase('SystemConfigRepository PostgreSQL integration', () => {
 
 Acrescentar `src/repositories/systemConfigRepository.integration.test.ts` à lista do script `test:integration` em `backend/package.json`.
 
-- [ ] **Step 3: Run them to verify they fail**
+- [x] **Step 3: Run them to verify they fail**
 
 Run: `cd backend && npx jest src/services/configService.test.ts`
 Expected: FAIL — `getOidcSettings`/`importFromEnvironment` inexistentes; o teste de ambiente recebe os valores do `.env`.
 Run (Postgres descartável): `cd backend && RUN_DATABASE_INTEGRATION=true POSTGRES_PORT=55432 npx jest src/repositories/systemConfigRepository.integration.test.ts`
 Expected: FAIL — `insertIfAbsent is not a function`.
 
-- [ ] **Step 4: Implement the model and repository**
+- [x] **Step 4: Implement the model and repository**
 
 Em `backend/src/models/SystemConfig.ts`, após `MailgridConfig`:
 
@@ -837,177 +644,76 @@ e `export type ConfigValue = MailgridConfig | OidcSettings | Record<string, unkn
 
 Em `systemConfigRepository.ts`, novo método na classe:
 
-```ts
-  /**
-   * Insert a configuration only when the key does not exist yet.
-   * Safe when several replicas start at the same time.
-   */
-  async insertIfAbsent(key: string, value: ConfigValue): Promise<boolean> {
-    const rows = await this.db(this.tableName)
-      .insert({ key, value: JSON.stringify(value), created_at: new Date(), updated_at: new Date() })
-      .onConflict('key')
-      .ignore()
-      .returning('id');
-    return rows.length > 0;
-  }
-```
+Implementar no arquivo indicado conforme Interfaces, contratos complementares e testes desta task.
+
 
 (importar `ConfigValue` de `'../models/SystemConfig'`).
 
-- [ ] **Step 5: Implement `ConfigService`**
+- [x] **Step 5: Implement `ConfigService`**
 
 Substituir `getMailgridConfig` e acrescentar os novos métodos:
 
-```ts
-import { readFileSync } from 'fs';
-import { MailgridConfig, OidcSettings } from '../models/SystemConfig';
+Implementar no arquivo indicado conforme Interfaces, contratos complementares e testes desta task.
 
-const EMPTY_MAILGRID: MailgridConfig = {
-  host: '',
-  user: '',
-  pass: '',
-  from_address: '',
-  from_name: 'BulkMail Pro',
-  webhook_token: '',
-};
 
-const trimSlash = (value: string | undefined): string => (value || '').trim().replace(/\/$/, '');
+Implementar no arquivo indicado conforme Interfaces e decisões de segurança desta task.
 
-// Reads NAME or the Docker secret file referenced by NAME_FILE.
-const environmentSecret = (env: NodeJS.ProcessEnv, name: string): string => {
-  if (env[name]) return String(env[name]).trim();
-  const file = env[`${name}_FILE`];
-  if (!file) return '';
-  try {
-    return readFileSync(file, 'utf8').trim();
-  } catch {
-    return '';
-  }
-};
-```
-
-```ts
-  /**
-   * Get Mailgrid configuration from the database (empty when not configured)
-   */
-  async getMailgridConfig(): Promise<MailgridConfig> {
-    const dbConfig = await this.repository.getByKey('smtp');
-    if (!dbConfig?.value) return { ...EMPTY_MAILGRID };
-
-    const smtp = dbConfig.value as MailgridConfig;
-    return {
-      host: smtp.host || '',
-      user: smtp.user || '',
-      pass: decryptSecret(smtp.pass || ''),
-      from_address: smtp.from_address || '',
-      from_name: smtp.from_name || 'BulkMail Pro',
-      webhook_token: decryptSecret(smtp.webhook_token || ''),
-    };
-  }
-
-  /**
-   * Get intranet (OIDC) login configuration from the database
-   */
-  async getOidcSettings(): Promise<OidcSettings | null> {
-    const stored = await this.getConfig<Partial<OidcSettings>>('oidc');
-    if (!stored) return null;
-    return {
-      enabled: stored.enabled === true,
-      issuer: stored.issuer || '',
-      clientId: stored.clientId || '',
-      clientSecret: decryptSecret(stored.clientSecret || ''),
-      backchannelOrigin: stored.backchannelOrigin || '',
-    };
-  }
-
-  /**
-   * Store intranet (OIDC) login configuration
-   */
-  async updateOidcSettings(settings: OidcSettings): Promise<void> {
-    await this.repository.set({
-      key: 'oidc',
-      value: { ...settings, clientSecret: encryptSecret(settings.clientSecret) },
-    });
-  }
-
-  /**
-   * One-time import of the legacy environment configuration.
-   * Each section is written only when the database does not have it yet.
-   */
-  async importFromEnvironment(env: NodeJS.ProcessEnv = process.env): Promise<{ mailgrid: boolean; oidc: boolean }> {
-    let mailgrid = false;
-    let oidc = false;
-
-    const host = env.MAILGRID_HOST || env.SMTP_HOST;
-    if (host) {
-      const user = env.MAILGRID_USER || env.SMTP_USER || '';
-      mailgrid = await this.repository.insertIfAbsent('smtp', {
-        host,
-        user,
-        pass: encryptSecret(environmentSecret(env, 'MAILGRID_PASS') || env.SMTP_PASS || ''),
-        from_address: env.MAILGRID_SENDER || env.SMTP_SENDER || user,
-        from_name: env.MAILGRID_SENDER_NAME || env.SMTP_SENDER_NAME || 'BulkMail Pro',
-        webhook_token: encryptSecret(environmentSecret(env, 'MAILGRID_WEBHOOK_TOKEN')),
-      });
-    }
-
-    if (env.OIDC_ISSUER && env.OIDC_CLIENT_ID) {
-      oidc = await this.repository.insertIfAbsent('oidc', {
-        enabled: true,
-        issuer: trimSlash(env.OIDC_ISSUER),
-        clientId: env.OIDC_CLIENT_ID.trim(),
-        clientSecret: encryptSecret(environmentSecret(env, 'OIDC_CLIENT_SECRET')),
-        backchannelOrigin: trimSlash(env.OIDC_BACKCHANNEL_ORIGIN),
-      });
-    }
-
-    return { mailgrid, oidc };
-  }
-```
 
 Remover o bloco `try/catch` com fallback para `process.env` do `getMailgridConfig` antigo.
 
-- [ ] **Step 6: Remove the environment fallback from the worker**
+- [x] **Step 6: Remove the environment fallback from the worker**
 
 Em `backend/src/queue/processors.ts`, substituir o bloco que monta `config` por:
 
-```ts
-    if (!isDatabaseReady()) throw new Error("Database not available");
-    const config = await getConfigService().getMailgridConfig();
-    if (!config.host) throw new Error("Mailgrid não configurado");
-```
+Implementar no arquivo indicado conforme Interfaces, contratos complementares e testes desta task.
 
-- [ ] **Step 7: Import on backend start**
+
+- [x] **Step 7: Import on backend start**
 
 Em `backend/src/app.ts`, dentro de `startServer`, logo após `await initializeDatabase();` (no mesmo `try`):
 
-```ts
-    const { getConfigService } = await import('./services/databaseService');
-    const imported = await getConfigService().importFromEnvironment();
-    if (imported.mailgrid || imported.oidc) {
-      console.log('[Settings]', JSON.stringify({ actor: 'system', action: 'settings.import_environment', fields: Object.keys(imported).filter((key) => imported[key as keyof typeof imported]) }));
-    }
-```
+Implementar no arquivo indicado conforme Interfaces, contratos complementares e testes desta task.
+
 
 (Ajuste o import dinâmico existente para trazer `initializeDatabase` e `getConfigService` juntos.)
 
-- [ ] **Step 8: Run tests**
+- [x] **Step 8: Run tests**
 
 Run: `cd backend && npx jest src/services/configService.test.ts src/queue src/controllers/webhookController.test.ts src/controllers/configController.test.ts && npx tsc --noEmit && npx eslint src/services/configService.ts src/repositories/systemConfigRepository.ts src/models/SystemConfig.ts src/queue/processors.ts src/app.ts`
 Expected: PASS. Se algum teste de `processors` dependia do fallback para o ambiente, ajuste-o para mockar `isDatabaseReady`/`getConfigService` e registre no relatório.
 Run (Postgres descartável): `cd backend && RUN_DATABASE_INTEGRATION=true POSTGRES_PORT=55432 npx jest src/repositories/systemConfigRepository.integration.test.ts`
 Expected: PASS.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
-git add backend/src/models/SystemConfig.ts backend/src/repositories/systemConfigRepository.ts backend/src/repositories/systemConfigRepository.integration.test.ts backend/src/services/configService.ts backend/src/services/configService.test.ts backend/src/queue/processors.ts backend/src/app.ts backend/package.json
-git commit -m "feat: read Mailgrid and OIDC settings from the database with one-time env import [Story 4.2]"
+rtk git add backend/src/models/SystemConfig.ts backend/src/repositories/systemConfigRepository.ts backend/src/repositories/systemConfigRepository.integration.test.ts backend/src/services/configService.ts backend/src/services/configService.test.ts backend/src/queue/processors.ts backend/src/app.ts backend/package.json
+rtk git commit -m "feat: read Mailgrid and OIDC settings from the database with one-time env import [Story 4.2]"
 ```
 
 ---
 
 ### Task 4: OIDC configurado pelo banco (AC 17, 18)
+
+**Contratos complementares — snapshot por operação (AC7, 15–18):**
+- Files adicionais: `backend/src/services/authSessionService.ts`, `backend/src/services/authSessionService.test.ts`, `backend/src/services/oidcConfiguration.ts` (Task 3).
+- Produzir `OidcOperationContext = Readonly<{ configuration: OidcConfiguration; configurationFingerprint: string }>` e `loadOidcOperationContext(): Promise<OidcOperationContext>`. Configuração sem cache entre operações; context inclui issuer, clientId, secret, backchannel, redirectUri e appOrigin.
+- `getOidcMetadata(context: OidcOperationContext): Promise<OidcMetadata>`; todos helpers de exchange, refresh, validação, userinfo e revogação recebem o mesmo context como primeiro argumento. Preservar parâmetros restantes e tipos de retorno existentes; atualizar todos consumidores/testes, sem overload que relê banco silenciosamente.
+- `createAuthorizationRequest(context, returnTo?)` grava `issuer` e `configurationFingerprint` na `OidcLoginTransaction`. Sessão OIDC carrega esses dois campos. Callback carrega um context e compara com a transação antes do exchange; refresh/logout comparam com sessão antes de transmitir tokens. Divergência encerra sessão/fluxo e requer novo login (`auth_error=not_configured`); não enviar tokens ao issuer novo. O snapshot permanece estável mesmo se alguém salvar configuração após essa comparação.
+- Sessões/transações legadas sem binding recebem o `oidc_legacy_binding` da Task 3, nunca issuer atual. Sem binding, recusar com segurança. Com configuração original inalterada, continuam válidas (AC7); alteração incompatível exige login novo. Salvar configuração passa a valer para novas operações em todas as réplicas.
+- `validateStoredOidcSettings(settings: OidcSettings): void` sempre valida URLs preenchidas, HTTPS em produção, HTTP só localhost fora de produção, backchannel proibido em produção. Configuração desativada e vazia é válida. Se enabled, exigir issuer/clientId/secret; `validateOidcSettings` produz configuração utilizável e chama essa validação. `probeOidcProvider` exige campos de conexão mesmo com enabled=false e consulta discovery/JWKS sem salvar.
+- `isOidcEnabled()` só retorna false para ausência/desativação/erro de validação conhecido; falha de banco deve propagar, sem fingir configuração ausente.
+
+- [x] **QA Step 1:** escrever testes com fonte de config A/B e promises controladas. Iniciar callback/refresh com A, trocar fonte para B enquanto discovery está pendente; esperar URL e client secret exclusivamente de A e uma leitura de config. Com transação/session de A e context B, esperar zero chamadas de token/userinfo/revoke e sessão encerrada. Testar legado com binding A e issuer atual B: recusa antes de transmitir. Asserções mínimas com transport e fonte injetados:
+```ts
+expect(settingsSource).toHaveBeenCalledTimes(1);
+expect(transport.tokenRequests.every(r => r.url === metadataA.token_endpoint && r.clientSecret === secretA)).toBe(true);
+expect(transport.requestsToIssuerB).toHaveLength(0);
+```
+No caso incompatível, esperar tokenRequests vazio. `transport` é o mock do fetch já usado em oidcService.test.ts; registrar URL/body para assertions, sem logs reais.
+- [x] **QA Step 2:** executar `rtk proxy npx jest src/services/oidcService.test.ts src/services/authSessionService.test.ts`; FAIL antes do context.
+- [x] **QA Step 3:** propagar context e bindings em todo o fluxo, mantendo cache de discovery/JWKS somente por issuer/backchannel. Novo context não reutiliza segredo antigo.
+- [x] **QA Step 4:** repetir testes, options sem OIDC e login redirect; backend typecheck PASS. Commit inclui sessions e helper configuration.
 
 **Files:**
 - Modify: `backend/src/services/oidcService.ts`, `backend/src/services/oidcService.test.ts`, `backend/src/app.ts`, `backend/src/controllers/localAuthController.ts` (+ teste), `backend/src/routes/authRoutes.ts` (+ teste)
@@ -1027,7 +733,7 @@ git commit -m "feat: read Mailgrid and OIDC settings from the database with one-
   // GET /api/auth/options → { success: true, data: { localLoginEnabled: boolean, oidcEnabled: boolean } }
   ```
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Em `oidcService.test.ts`, no `beforeEach`, remover `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` e `OIDC_BACKCHANNEL_ORIGIN` do ambiente (mantenha `NODE_ENV`, `OIDC_SESSION_ENCRYPTION_KEY` e `APP_ORIGIN`) e configurar a fonte:
 
@@ -1119,11 +825,8 @@ Em `localAuthController.test.ts`, adicionar ao `setup` a dependência `oidcEnabl
 
 Em `authRoutes.test.ts`, no mock de `../services/oidcService` acrescentar `isOidcEnabled: jest.fn().mockResolvedValue(true),` e trocar a classe mock por uma que guarde o código:
 
-```ts
-  OidcError: class OidcError extends Error {
-    constructor(message: string, readonly code: string) { super(message); }
-  },
-```
+Implementar no arquivo indicado conforme Interfaces, contratos complementares e testes desta task.
+
 
 e acrescentar:
 
@@ -1137,12 +840,12 @@ e acrescentar:
   });
 ```
 
-- [ ] **Step 2: Run them to verify they fail**
+- [x] **Step 2: Run them to verify they fail**
 
 Run: `cd backend && npx jest src/services/oidcService.test.ts src/controllers/localAuthController.test.ts src/routes/authRoutes.test.ts`
 Expected: FAIL — `setOidcSettingsSource`, `validateOidcSettings`, `isOidcEnabled`, `probeOidcProvider` inexistentes; `options` sem `oidcEnabled`; `/oidc/login` chama `next(error)`.
 
-- [ ] **Step 3: Implement in `oidcService.ts`**
+- [x] **Step 3: Implement in `oidcService.ts`**
 
 Imports:
 
@@ -1153,78 +856,8 @@ import { getConfigService } from './databaseService';
 
 Substituir `getConfiguration` (síncrona, baseada em `process.env`) por:
 
-```ts
-export type OidcSettingsSource = () => Promise<OidcSettings | null>;
+Implementar no arquivo indicado conforme Interfaces e decisões de segurança desta task.
 
-let settingsSource: OidcSettingsSource = () => getConfigService().getOidcSettings();
-
-export const setOidcSettingsSource = (source: OidcSettingsSource): void => {
-  settingsSource = source;
-  metadataCache = null;
-};
-
-const configurationError = (message: string): OidcError => new OidcError(message, 'configuration_error');
-
-export const validateOidcSettings = (
-  settings: OidcSettings,
-  appOrigin: string = process.env.APP_ORIGIN || '',
-): OidcConfiguration => {
-  const issuer = settings.issuer.trim().replace(/\/$/, '');
-  const clientId = settings.clientId.trim();
-  const backchannelOrigin = settings.backchannelOrigin.trim().replace(/\/$/, '');
-  if (!issuer || !clientId || !settings.clientSecret) {
-    throw configurationError('Informe issuer, client ID e client secret.');
-  }
-  if (!appOrigin) throw configurationError('APP_ORIGIN não está configurado no servidor.');
-
-  let issuerUrl: URL;
-  let originUrl: URL;
-  let backchannelUrl: URL | undefined;
-  try {
-    issuerUrl = new URL(issuer);
-    originUrl = new URL(appOrigin);
-    backchannelUrl = backchannelOrigin ? new URL(backchannelOrigin) : undefined;
-  } catch {
-    throw configurationError('Issuer, backchannel origin e APP_ORIGIN precisam ser URLs válidas.');
-  }
-
-  const production = process.env.NODE_ENV === 'production';
-  const localIssuer = issuerUrl.protocol === 'http:' && ['localhost', '127.0.0.1', '::1'].includes(issuerUrl.hostname);
-  if (production && issuerUrl.protocol !== 'https:') throw configurationError('O issuer precisa usar HTTPS em produção.');
-  if (production && originUrl.protocol !== 'https:') throw configurationError('APP_ORIGIN precisa usar HTTPS em produção.');
-  if (issuerUrl.protocol !== 'https:' && !localIssuer) {
-    throw configurationError('O issuer precisa usar HTTPS fora do ambiente local.');
-  }
-  if (backchannelUrl && production) throw configurationError('Backchannel origin só é permitido fora de produção.');
-  if (backchannelUrl && !['http:', 'https:'].includes(backchannelUrl.protocol)) {
-    throw configurationError('Backchannel origin precisa usar HTTP ou HTTPS.');
-  }
-
-  return {
-    issuer,
-    ...(backchannelOrigin ? { backchannelOrigin } : {}),
-    clientId,
-    clientSecret: settings.clientSecret,
-    redirectUri: `${originUrl.origin}/api/auth/oidc/callback`,
-    appOrigin: originUrl.origin,
-  };
-};
-
-const getConfiguration = async (): Promise<OidcConfiguration> => {
-  const settings = await settingsSource();
-  if (!settings?.enabled) throw new OidcError('Intranet login is not configured', 'not_configured');
-  return validateOidcSettings(settings);
-};
-
-export const isOidcEnabled = async (): Promise<boolean> => {
-  try {
-    await getConfiguration();
-    return true;
-  } catch {
-    return false;
-  }
-};
-```
 
 Remover a função `getSecret` apenas se não for mais usada; `getSessionEncryptionKey` ainda precisa dela (para `OIDC_SESSION_ENCRYPTION_KEY`) — mantenha-a.
 
@@ -1238,49 +871,14 @@ export const assertSessionEncryptionKey = (): void => {
 
 Extrair a busca do discovery para reuso pelo teste de conexão e trocar a mensagem de incompatibilidade:
 
-```ts
-const fetchMetadata = async (config: OidcConfiguration): Promise<OidcMetadata> => {
-  const metadata = await fetchJson<OidcMetadata>(oidcUrl(`${config.issuer}/.well-known/openid-configuration`, config, true));
-  if (
-    metadata.issuer !== config.issuer ||
-    !metadata.authorization_endpoint ||
-    !metadata.token_endpoint ||
-    !metadata.userinfo_endpoint ||
-    !metadata.jwks_uri ||
-    !metadata.id_token_signing_alg_values_supported?.includes('RS256') ||
-    !metadata.code_challenge_methods_supported?.includes('S256')
-  ) {
-    throw new OidcError('O discovery do issuer não é compatível (requer RS256 e PKCE S256).', 'configuration_error');
-  }
-  return metadata;
-};
+Implementar no arquivo indicado conforme Interfaces e decisões de segurança desta task.
 
-export const getOidcMetadata = async (): Promise<OidcMetadata> => {
-  const config = await getConfiguration();
-  const cacheKey = `${config.issuer}|${config.backchannelOrigin || ''}`;
-  if (metadataCache && metadataCache.expiresAt > Date.now() && metadataCache.cacheKey === cacheKey) {
-    return metadataCache.value;
-  }
-  const metadata = await fetchMetadata(config);
-  metadataCache = { value: metadata, expiresAt: Date.now() + DISCOVERY_TTL_MS, cacheKey };
-  return metadata;
-};
 
-export const probeOidcProvider = async (settings: OidcSettings): Promise<void> => {
-  const config = validateOidcSettings(settings);
-  const metadata = await fetchMetadata(config);
-  const jwks = await fetchJson<JwksResponse>(oidcUrl(metadata.jwks_uri, config, true));
-  if (!Array.isArray(jwks.keys) || !jwks.keys.some((key) => key.kty === 'RSA' && key.use === 'sig')) {
-    throw new OidcError('O issuer não publicou chaves de assinatura RSA.', 'configuration_error');
-  }
-};
-```
-
-Em todas as demais funções (`createAuthorizationRequest`, `exchange`, `exchangeAuthorizationCode`, `validateIdToken`, `getUserInfo`, `revokeRefreshToken`) trocar `getConfiguration()` por `await getConfiguration()` (em `getUserInfo`, o argumento inline vira `await getConfiguration()`).
+Em `createAuthorizationRequest`, `exchange`, `exchangeAuthorizationCode`, `refreshOidcTokens`, `validateIdToken`, `getUserInfo` e `revokeRefreshToken`, propagar o mesmo `OidcOperationContext` (definido nas decisões da Task 4). Nenhum helper relê configurações. Callback, refresh e logout comparam o fingerprint antes de enviar código, segredo ou token; configuração incompatível encerra a operação sem chamada ao novo provedor.
 
 Em `backend/src/app.ts`: trocar o import e a chamada `assertOidcConfiguration()` por `assertSessionEncryptionKey()`.
 
-- [ ] **Step 4: Implement `options` and the not-configured redirect**
+- [x] **Step 4: Implement `options` and the not-configured redirect**
 
 `localAuthController.ts`:
 
@@ -1289,47 +887,46 @@ export interface LocalAuthControllerDependencies {
   enabled: () => boolean;
   oidcEnabled: () => Promise<boolean>;
   authenticate: (input: LocalAuthInput) => Promise<LocalAuthResult>;
-  createSession: (user: AuthenticatedUser, localUserId: string) => Promise<string>;
+  createSession: (user: AuthenticatedUser, localUserId: string, credentialVersion: number) => Promise<string>;
   deleteSession: (sessionId: string | undefined) => Promise<void>;
 }
 ```
 
-```ts
-  options: async (_request: Request, response: Response): Promise<void> => {
-    response.status(200).json({
-      success: true,
-      data: { localLoginEnabled: deps.enabled(), oidcEnabled: await deps.oidcEnabled() },
-    });
-  },
-```
+Implementar no arquivo indicado conforme Interfaces, contratos complementares e testes desta task.
+
 
 `authRoutes.ts`: importar `isOidcEnabled` e passar `oidcEnabled: isOidcEnabled,` para `createLocalAuthController`. No `catch` de `GET /oidc/login`:
 
-```ts
-  } catch (error) {
-    if (error instanceof OidcError && error.code === 'not_configured') {
-      response.redirect(302, `${appOrigin()}/login?auth_error=not_configured`);
-      return;
-    }
-    next(error);
-  }
-```
+Implementar no arquivo indicado conforme Interfaces, contratos complementares e testes desta task.
 
-- [ ] **Step 5: Run tests**
+
+- [x] **Step 5: Run tests**
 
 Run: `cd backend && npx jest && npx tsc --noEmit && npx eslint src/services/oidcService.ts src/services/oidcService.test.ts src/controllers/localAuthController.ts src/routes/authRoutes.ts src/app.ts`
 Expected: suíte verde; sem erros.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
-git add backend/src/services/oidcService.ts backend/src/services/oidcService.test.ts backend/src/app.ts backend/src/controllers/localAuthController.ts backend/src/controllers/localAuthController.test.ts backend/src/routes/authRoutes.ts backend/src/routes/authRoutes.test.ts
-git commit -m "feat: configure intranet login from the database and start without it [Story 4.2]"
+rtk git add backend/src/services/oidcService.ts backend/src/services/oidcService.test.ts backend/src/app.ts backend/src/controllers/localAuthController.ts backend/src/controllers/localAuthController.test.ts backend/src/routes/authRoutes.ts backend/src/routes/authRoutes.test.ts
+rtk git commit -m "feat: configure intranet login from the database and start without it [Story 4.2]"
 ```
 
 ---
 
 ### Task 5: Conta, perfil e situação em cada requisição (AC 2, 3, 4, 5, 7, 11)
+
+**Contratos complementares — sessões locais (AC3, 7, 10–11):**
+- Files adicionais: `backend/src/services/authSessionService.ts` e teste; `backend/src/services/localAuthService.ts` e teste; `backend/src/controllers/localAuthController.ts` e teste.
+- Resultado de authenticate local inclui `credentialVersion` do registro cujo hash foi verificado. `createLocalSession(user: AuthenticatedUser, localUserId: string, credentialVersion: number): Promise<string>` recebe essa versão; nunca reler versão mais nova para carimbar autenticação com senha velha.
+- `LocalAuthSession.credentialVersion: number`; parser aceita legado sem versão como 0, pois migration inicializa todas contas em 0. Após reset que incrementa versão, legado também perde acesso.
+- `resolveAccount(session: AuthSession, users: AccountStore): Promise<User | null>` compara versão local com conta carregada em cada requisição. Divergência/disabled encerra sessão e limpa cookie com 401. Redis cleanup permanece best-effort; falha de delete/index não autoriza sessão inválida.
+- OIDC resolve exclusivamente issuer + sub já vinculados pela Task 4. Conta desativada não é reativada pelo upsert.
+
+- [x] **QA Step 1:** em `backend/src/middlewares/authentication.test.ts`, teste `rejects sessions created after a concurrent reset with an old credential version`: autenticar versão 0, suspender createSession, reset para 1 e executar revokeSessions sem IDs, liberar criação da sessão 0; próxima requisição retorna 401. Acrescentar legado sem versão antes/depois de reset e profile/status imediato.
+- [x] **QA Step 2:** rodar `rtk proxy npx jest src/middlewares/authentication.test.ts src/services/localAuthService.test.ts src/services/authSessionService.test.ts`; FAIL antes da versão.
+- [x] **QA Step 3:** implementar contratos, atualizar mocks/login controller e parsing; não devolver credentialVersion em /me ou login.
+- [x] **QA Step 4:** repetir testes com PASS e typecheck; commit inclui todos consumidores locais alterados.
 
 **Files:**
 - Create: `backend/src/services/accountService.ts`, `backend/src/services/accountService.test.ts`
@@ -1353,7 +950,7 @@ git commit -m "feat: configure intranet login from the database and start withou
   - `GET /api/auth/me` → `data: AccountView`. Login local responde `data` com `{ userId, sub, name, provider:'local', role, mustChangePassword }`.
   - Callback OIDC registra/atualiza a conta; desativada → `/login?auth_error=unauthorized`; senão `recordLogin`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```ts
 // backend/src/services/accountService.test.ts
@@ -1362,7 +959,7 @@ import type { AuthSession } from './authSessionService';
 import { resolveAccount, toAccountView } from './accountService';
 
 const account = (overrides: Partial<User> = {}): User => ({
-  id: 'u-1', provider: 'oidc', role: 'operator', username: null, oidcSub: 'sub-1', email: 'a@crefito.gov.br',
+  id: 'u-1', provider: 'oidc', role: 'operator', username: null, oidcSub: 'sub-1', oidcIssuer: 'https://intranet.example', credentialVersion: 0, email: 'a@crefito.gov.br',
   name: 'Ana', passwordHash: null, mustChangePassword: false, disabledAt: null, lastLoginAt: null, ...overrides,
 });
 
@@ -1373,7 +970,7 @@ const store = () => ({
 });
 
 const oidcSession: AuthSession = {
-  provider: 'oidc', user: { sub: 'sub-1', name: 'Ana', email: 'a@crefito.gov.br' }, refreshToken: 'r', accessTokenExpiresAt: 1,
+  provider: 'oidc', issuer: 'https://intranet.example', configurationFingerprint: 'fixture-fingerprint', user: { sub: 'sub-1', name: 'Ana', email: 'a@crefito.gov.br' }, refreshToken: 'r', accessTokenExpiresAt: 1,
 };
 
 describe('resolveAccount', () => {
@@ -1395,7 +992,7 @@ describe('resolveAccount', () => {
     const users = store();
     users.upsertOidcUser.mockResolvedValue(account());
     await expect(resolveAccount(oidcSession, users)).resolves.toMatchObject({ role: 'operator' });
-    expect(users.upsertOidcUser).toHaveBeenCalledWith({ sub: 'sub-1', email: 'a@crefito.gov.br', name: 'Ana' });
+    expect(users.upsertOidcUser).toHaveBeenCalledWith({ issuer: 'https://intranet.example', sub: 'sub-1', email: 'a@crefito.gov.br', name: 'Ana' });
   });
 });
 
@@ -1422,7 +1019,7 @@ jest.mock('../services/databaseService', () => ({ getUserRepository: () => mockU
 
 ```ts
   it('ends the session of a disabled account', async () => {
-    const session = { provider: 'oidc', user: { sub: 'user-1' }, refreshToken: 'r', accessTokenExpiresAt: Date.now() + 60_000 };
+    const session = { provider: 'oidc', issuer: 'https://intranet.example', configurationFingerprint: 'fixture-fingerprint', user: { sub: 'user-1' }, refreshToken: 'r', accessTokenExpiresAt: Date.now() + 60_000 };
     (getSession as jest.Mock).mockResolvedValue(session);
     (refreshSessionIfNeeded as jest.Mock).mockResolvedValue(session);
     mockUsers.findByOidcSub.mockResolvedValue({ id: 'u', role: 'admin', disabledAt: new Date(), mustChangePassword: false });
@@ -1481,7 +1078,7 @@ No teste "returns to the stored path after a successful OIDC callback", antes da
       response as unknown as Response,
       next,
     );
-    expect(mockUsers.upsertOidcUser).toHaveBeenCalledWith({ sub: 'u', email: 'u@crefito.gov.br', name: 'Usuária' });
+    expect(mockUsers.upsertOidcUser).toHaveBeenCalledWith({ issuer: 'https://intranet.example', sub: 'u', email: 'u@crefito.gov.br', name: 'Usuária' });
     expect(createSession).not.toHaveBeenCalled();
     expect(response.redirect).toHaveBeenCalledWith(302, 'https://app.example/login?auth_error=unauthorized');
   });
@@ -1495,7 +1092,7 @@ E trocar o teste de `/me` por:
     const session = { provider: 'local', user: { sub: 'local:l', name: 'admin' }, localUserId: 'l' };
     const account = {
       id: 'l', provider: 'local', role: 'admin', username: 'admin', name: null, email: null,
-      passwordHash: 'h', mustChangePassword: false, disabledAt: null, lastLoginAt: null, oidcSub: null,
+      passwordHash: 'h', mustChangePassword: false, disabledAt: null, lastLoginAt: null, oidcSub: null, oidcIssuer: null, credentialVersion: 0,
     };
     await finalHandler('get', '/me')({ auth: { sessionId: 'sid', session, account } } as unknown as Request, response as unknown as Response, next);
     expect(response.json).toHaveBeenCalledWith({
@@ -1514,54 +1111,17 @@ Em `localAuthController.test.ts`, no teste de sucesso, a resposta esperada passa
     });
 ```
 
-- [ ] **Step 2: Run them to verify they fail**
+- [x] **Step 2: Run them to verify they fail**
 
 Run: `cd backend && npx jest src/services/accountService.test.ts src/middlewares/authentication.test.ts src/routes/authRoutes.test.ts src/controllers/localAuthController.test.ts`
 Expected: FAIL — módulo `accountService` inexistente; `requireAdmin`/`requirePasswordCurrent` inexistentes; callback não registra a conta; `/me` e login local sem `role`.
 
-- [ ] **Step 3: Implement `accountService.ts`**
+- [x] **Step 3: Implement `accountService.ts`**
 
-```ts
-// backend/src/services/accountService.ts
-import type { User, UserStore } from '../repositories/userRepository';
-import type { AuthSession } from './authSessionService';
+Implementar no arquivo indicado conforme Interfaces e decisões de segurança desta task.
 
-export type AccountStore = Pick<UserStore, 'findById' | 'findByOidcSub' | 'upsertOidcUser'>;
 
-export interface AccountView {
-  userId: string;
-  sub: string;
-  name?: string;
-  email?: string;
-  provider: 'local' | 'oidc';
-  role: 'admin' | 'operator';
-  mustChangePassword: boolean;
-}
-
-export const resolveAccount = async (session: AuthSession, users: AccountStore): Promise<User | null> => {
-  if (session.provider === 'local') return users.findById(session.localUserId);
-  const existing = await users.findByOidcSub(session.user.sub);
-  if (existing) return existing;
-  // Sessions opened before Story 4.2 belong to users that were never registered.
-  return users.upsertOidcUser({ sub: session.user.sub, email: session.user.email, name: session.user.name });
-};
-
-export const toAccountView = (session: AuthSession, account: User): AccountView => {
-  const name = account.name ?? account.username ?? session.user.name;
-  const email = account.email ?? session.user.email;
-  return {
-    userId: account.id,
-    sub: session.user.sub,
-    ...(name ? { name } : {}),
-    ...(email ? { email } : {}),
-    provider: account.provider,
-    role: account.role,
-    mustChangePassword: account.mustChangePassword,
-  };
-};
-```
-
-- [ ] **Step 4: Implement the middleware**
+- [x] **Step 4: Implement the middleware**
 
 Em `authentication.ts`:
 
@@ -1581,50 +1141,20 @@ export interface AuthenticatedRequest extends Request {
 
 Em `requireAuthentication`, substituir `request.auth = { sessionId, session: currentSession };` por:
 
-```ts
-    // Role and status are read on every request so changes apply immediately.
-    const account = await resolveAccount(currentSession, getUserRepository());
-    if (!account || account.disabledAt) {
-      await deleteSession(sessionId);
-      response.clearCookie(SESSION_COOKIE, cookieOptions());
-      response.status(401).json({ success: false, error: 'Account disabled' });
-      return;
-    }
-    request.auth = { sessionId, session: currentSession, account };
-```
+Implementar no arquivo indicado conforme Interfaces, contratos complementares e testes desta task.
+
 
 E acrescentar:
 
-```ts
-export const requireAdmin = (request: AuthenticatedRequest, response: Response, next: NextFunction): void => {
-  if (request.auth?.account.role !== 'admin') {
-    response.status(403).json({ success: false, error: 'forbidden' });
-    return;
-  }
-  next();
-};
+Implementar no arquivo indicado conforme Interfaces, contratos complementares e testes desta task.
 
-export const requirePasswordCurrent = (request: AuthenticatedRequest, response: Response, next: NextFunction): void => {
-  if (request.auth?.account.mustChangePassword) {
-    response.status(403).json({ success: false, error: 'password_change_required' });
-    return;
-  }
-  next();
-};
-```
 
-- [ ] **Step 5: Wire routes, callback, login response and app guards**
+- [x] **Step 5: Wire routes, callback, login response and app guards**
 
 `authRoutes.ts` — callback, entre a checagem `claims.sub !== user.sub` e `createSession`:
 
-```ts
-    const account = await getUserRepository().upsertOidcUser({ sub: user.sub, email: user.email, name: user.name });
-    if (account.disabledAt) {
-      fail('unauthorized');
-      return;
-    }
-    await getUserRepository().recordLogin(account.id);
-```
+Implementar no arquivo indicado conforme Interfaces, contratos complementares e testes desta task.
+
 
 `/me`:
 
@@ -1642,22 +1172,8 @@ router.get('/me', requireAuthentication, (request: AuthenticatedRequest, respons
 
 `localAuthController.ts`, no sucesso:
 
-```ts
-      const user: AuthenticatedUser = { sub: `local:${result.user.id}`, name: result.user.username };
-      await deps.deleteSession(getCookie(request, SESSION_COOKIE));
-      const sessionId = await deps.createSession(user, result.user.id);
-      response.cookie(SESSION_COOKIE, sessionId, cookieOptions(SESSION_COOKIE_MAX_AGE));
-      response.status(200).json({
-        success: true,
-        data: {
-          userId: result.user.id,
-          ...user,
-          provider: 'local',
-          role: result.user.role,
-          mustChangePassword: result.user.mustChangePassword,
-        },
-      });
-```
+Implementar no arquivo indicado conforme Interfaces, contratos complementares e testes desta task.
+
 
 `app.ts`:
 
@@ -1674,21 +1190,43 @@ app.use('/api', requireAuthentication, requireTrustedOrigin, requirePasswordCurr
 app.use('/api/config', requireAdmin, configLimiter, configRoutes);
 ```
 
-- [ ] **Step 6: Run tests**
+- [x] **Step 6: Run tests**
 
 Run: `cd backend && npx jest && npx tsc --noEmit && npx eslint src/services/accountService.ts src/middlewares src/routes/authRoutes.ts src/controllers/localAuthController.ts src/app.ts`
 Expected: suíte verde; sem erros.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
-git add backend/src/services/accountService.ts backend/src/services/accountService.test.ts backend/src/middlewares backend/src/routes/authRoutes.ts backend/src/routes/authRoutes.test.ts backend/src/controllers/localAuthController.ts backend/src/controllers/localAuthController.test.ts backend/src/app.ts
-git commit -m "feat: load account role and status on every request and restrict settings to admins [Story 4.2]"
+rtk git add backend/src/services/accountService.ts backend/src/services/accountService.test.ts backend/src/middlewares backend/src/routes/authRoutes.ts backend/src/routes/authRoutes.test.ts backend/src/controllers/localAuthController.ts backend/src/controllers/localAuthController.test.ts backend/src/app.ts
+rtk git commit -m "feat: load account role and status on every request and restrict settings to admins [Story 4.2]"
 ```
 
 ---
 
 ### Task 6: API de usuários, minha senha e configuração OIDC (AC 8–11, 14–17, 24)
+
+**Contratos de serviço explícitos:** `createUserAdminService(deps)` produz `list(): Promise<UserView[]>`, `createLocal(actor: string, input: Record<string, unknown>): Promise<UserView>`, `updateAccess(actor: string, id: string, change: Record<string, unknown>): Promise<UserView>`, `resetPassword(actor: string, id: string, password: unknown): Promise<void>`, `changeOwnPassword(account: User, currentPassword: unknown, newPassword: unknown): Promise<void>`. Dependencies: UserStore, hash/verify existentes, revokeSessions e `audit(event: { actor: string; action: string; target?: string; fields?: string[] }): void`. `UserAdminError` carrega code/status/message. `UserView` tem id, provider, username/name/email nullable, role, disabled, mustChangePassword, lastLoginAt ISO nullable; nenhum hash/versão/binding. `createUserAdminRouter()` registra rotas das Global Constraints; handlers usam DTO e traduzem erros conhecidos. Auditoria nunca imprime valores dos campos.
+
+**Contratos complementares — compare-and-swap e validação (AC10–11, 15–17, 24):**
+- `changeOwnPassword(account: User, currentPassword: unknown, newPassword: unknown): Promise<void>` verifica senha atual, valida política, calcula novo hash e chama `changePasswordIfCurrent(account.id, account.passwordHash, account.credentialVersion, nextHash)`. False gera `409 credentials_changed` com mensagem "Sua senha foi alterada. Entre novamente para continuar."; não limpar flag, auditar sucesso ou sobrescrever reset. O frontend trata este erro na Task 7.
+- `resetPassword` usa `updatePassword(..., true)`, que incrementa versão. CLI reset usa mesma escrita com false. Limpeza Redis é complementar e não define validade.
+- `updateOidcConfig` chama sempre `validateStoredOidcSettings(settings)` após merge de segredo vazio; `testOidcConfig` chama probe sem persistir. Não colocar binding legado na resposta ou body de edição.
+
+- [x] **QA Step 1:** acrescentar em `userRepository.integration.test.ts`:
+```ts
+it('does not overwrite a concurrent administrative reset', async () => {
+  const before = await repository.create({ username: 'cas-user', passwordHash: 'hash-old' });
+  await repository.updatePassword(before.id, 'hash-reset', true);
+  const changed = await repository.changePasswordIfCurrent(before.id, before.passwordHash, before.credentialVersion, 'hash-own');
+  expect(changed).toBe(false);
+  expect(await repository.findById(before.id)).toMatchObject({ passwordHash: 'hash-reset', mustChangePassword: true, credentialVersion: 1 });
+});
+```
+Limpar cas-user em afterAll. Teste unitário com barrier no hash permite reset entre verify e UPDATE; esperar credentials_changed e nenhum audit de sucesso.
+- [x] **QA Step 2:** configController.test cobre **enabled=false** com issuer inválido → 400 invalid_oidc_settings; enabled=false vazio → sucesso; produção + backchannel não vazio → 400 mesmo disabled. Rodar testes alvo antes da implementação, esperar FAIL.
+- [x] **QA Step 3:** implementar CAS no serviço e validação incondicional no controller; mapear 409 credentials_changed no contrato de erros.
+- [x] **QA Step 4:** executar `rtk proxy npx jest src/services/userAdminService.test.ts src/controllers/configController.test.ts src/routes/userAdminRoutes.test.ts`; integração CAS e typecheck PASS.
 
 **Files:**
 - Create: `backend/src/services/settingsAudit.ts`, `backend/src/services/userAdminService.ts` (+ teste), `backend/src/routes/userAdminRoutes.ts` (+ teste)
@@ -1697,26 +1235,12 @@ git commit -m "feat: load account role and status on every request and restrict 
 **Interfaces:**
 - Consumes: `UserStore`, `User`, `UserRole`, `LastActiveAdminError`, `UserNotFoundError` (Tasks 1–2); `USERNAME_PATTERN` (`localUserAdminService.ts`); `normalizeUsername`; `validatePasswordPolicy`, `hashPassword`, `verifyPassword`; `revokeLocalUserSessions`; `requireAdmin` (Task 5); `getOidcSettings`/`updateOidcSettings` (Task 3); `validateOidcSettings`, `probeOidcProvider`, `OidcError` (Task 4).
 - Produces:
-  ```ts
-  // settingsAudit.ts
-  export interface SettingsAuditEvent { actor: string; action: string; target?: string; fields?: string[] }
-  export const logSettingsChange: (event: SettingsAuditEvent) => void;
-  // userAdminService.ts
-  export class UserAdminError extends Error { readonly code: string; readonly status: number }
-  export interface UserView { id: string; provider: 'local'|'oidc'; username: string|null; name: string|null; email: string|null; role: 'admin'|'operator'; disabled: boolean; mustChangePassword: boolean; lastLoginAt: string|null }
-  export const accountLabel: (user: User) => string;
-  export const createUserAdminService: (deps: UserAdminDependencies) => {
-    list(): Promise<UserView[]>;
-    createLocal(actor: string, input: Record<string, unknown>): Promise<UserView>;
-    updateAccess(actor: string, id: string, change: Record<string, unknown>): Promise<UserView>;
-    resetPassword(actor: string, id: string, password: unknown): Promise<void>;
-    changeOwnPassword(account: User, currentPassword: unknown, newPassword: unknown): Promise<void>;
-  };
-  ```
-  - HTTP: `GET /api/admin/users` → `{ success, data: UserView[] }`; `POST /api/admin/users` `{ username, password, role? }` → `201 { success, data: UserView }`; `PATCH /api/admin/users/:id` `{ role?, disabled? }` → `{ success, data: UserView }`; `POST /api/admin/users/:id/password` `{ password }` → `{ success: true }`; `POST /api/auth/password` `{ currentPassword, newPassword }` → `{ success: true }`.
-  - `GET /api/config/oidc` → `{ success, data: { enabled, issuer, clientId, clientSecret: '', clientSecretConfigured, backchannelOrigin, callbackUrl } }`; `POST /api/config/oidc` (mesmos campos) → `{ success, message }`; `POST /api/config/oidc/test` → `{ success, message }`.
+  Implementar no arquivo indicado conforme Interfaces, contratos complementares e testes desta task.
 
-- [ ] **Step 1: Write the failing service tests**
+  - HTTP: `GET /api/admin/users` → `{ success, data: UserView[] }`; `POST /api/admin/users` `{ username, password, role? }` → `201 { success, data: UserView }`; `PATCH /api/admin/users/:id` `{ role?, disabled? }` → `{ success, data: UserView }`; `POST /api/admin/users/:id/password` `{ password }` → `{ success: true }`; `POST /api/auth/password` `{ currentPassword, newPassword }` → `{ success: true }`.
+  - `GET /api/config/oidc` → `{ success, data: { enabled, issuer, clientId, clientSecret: '', clientSecretConfigured, backchannelAllowed, backchannelOrigin, callbackUrl } }`; `POST /api/config/oidc` (mesmos campos) → `{ success, message }`; `POST /api/config/oidc/test` → `{ success, message }`.
+
+- [x] **Step 1: Write the failing service tests**
 
 ```ts
 // backend/src/services/userAdminService.test.ts
@@ -1732,7 +1256,7 @@ class InMemoryUsers implements UserStore {
 
   add(user: Partial<User> & { id: string }): User {
     const full: User = {
-      provider: 'local', role: 'admin', username: null, oidcSub: null, email: null, name: null,
+      provider: 'local', role: 'admin', username: null, oidcSub: null, oidcIssuer: null, credentialVersion: 0, email: null, name: null,
       passwordHash: null, mustChangePassword: false, disabledAt: null, lastLoginAt: null, ...user,
     };
     this.users.set(full.id, full);
@@ -1743,7 +1267,7 @@ class InMemoryUsers implements UserStore {
   async findByUsername(username: string) {
     return ([...this.users.values()].find((u) => u.provider === 'local' && u.username === username) as LocalUser) ?? null;
   }
-  async findByOidcSub(sub: string) { return [...this.users.values()].find((u) => u.oidcSub === sub) ?? null; }
+  async findByOidcSub(issuer: string, sub: string) { return [...this.users.values()].find((u) => u.oidcIssuer === issuer && u.oidcSub === sub) ?? null; }
   async upsertOidcUser(): Promise<User> { throw new Error('not used'); }
   async list() { return [...this.users.values()]; }
   async create(input: { username: string; passwordHash: string; role?: UserRole; mustChangePassword?: boolean }) {
@@ -1753,9 +1277,16 @@ class InMemoryUsers implements UserStore {
     }) as LocalUser;
   }
   async updatePassword(id: string, passwordHash: string, mustChangePassword = false) {
-    Object.assign(this.users.get(id)!, { passwordHash, mustChangePassword });
+    const user = this.users.get(id)!;
+    Object.assign(user, { passwordHash, mustChangePassword, credentialVersion: user.credentialVersion + 1 });
   }
-  async setDisabled(id: string, disabled: boolean) { this.users.get(id)!.disabledAt = disabled ? new Date() : null; }
+  async changePasswordIfCurrent(id: string, expectedHash: string, expectedVersion: number, nextHash: string) {
+    const user = this.users.get(id);
+    if (!user || user.passwordHash !== expectedHash || user.credentialVersion !== expectedVersion) return false;
+    Object.assign(user, { passwordHash: nextHash, mustChangePassword: false });
+    return true;
+  }
+  async setDisabled(id: string, disabled: boolean) { await this.updateAccess(id, { disabled }); }
   async recordLogin() { /* not used */ }
   async updateAccess(id: string, change: { role?: UserRole; disabled?: boolean }) {
     const user = this.users.get(id);
@@ -1880,12 +1411,12 @@ describe('userAdminService', () => {
 });
 ```
 
-- [ ] **Step 2: Run them to verify they fail**
+- [x] **Step 2: Run them to verify they fail**
 
 Run: `cd backend && npx jest src/services/userAdminService.test.ts`
 Expected: FAIL — `Cannot find module './userAdminService'`.
 
-- [ ] **Step 3: Implement `settingsAudit.ts` and `userAdminService.ts`**
+- [x] **Step 3: Implement `settingsAudit.ts` and `userAdminService.ts`**
 
 ```ts
 // backend/src/services/settingsAudit.ts
@@ -1902,171 +1433,12 @@ export const logSettingsChange = (event: SettingsAuditEvent): void => {
 };
 ```
 
-```ts
-// backend/src/services/userAdminService.ts
-import {
-  LastActiveAdminError, User, UserNotFoundError, UserRole, UserStore,
-} from '../repositories/userRepository';
-import { normalizeUsername } from './localAuthService';
-import { USERNAME_PATTERN } from './localUserAdminService';
-import { validatePasswordPolicy } from './passwordHasher';
-import type { SettingsAuditEvent } from './settingsAudit';
+Implementar no arquivo indicado conforme Interfaces, contratos complementares e testes desta task.
 
-export class UserAdminError extends Error {
-  constructor(readonly code: string, readonly status: number, message: string) {
-    super(message);
-  }
-}
-
-export interface UserAdminDependencies {
-  users: UserStore;
-  hash: (password: string) => Promise<string>;
-  verify: (password: string, stored: string) => Promise<boolean>;
-  revokeSessions: (userId: string) => Promise<number>;
-  audit: (event: SettingsAuditEvent) => void;
-}
-
-export interface UserView {
-  id: string;
-  provider: 'local' | 'oidc';
-  username: string | null;
-  name: string | null;
-  email: string | null;
-  role: UserRole;
-  disabled: boolean;
-  mustChangePassword: boolean;
-  lastLoginAt: string | null;
-}
-
-const ROLES: UserRole[] = ['admin', 'operator'];
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-export const accountLabel = (user: User): string => user.username ?? user.email ?? user.oidcSub ?? user.id;
-
-const toUserView = (user: User): UserView => ({
-  id: user.id,
-  provider: user.provider,
-  username: user.username,
-  name: user.name,
-  email: user.email,
-  role: user.role,
-  disabled: Boolean(user.disabledAt),
-  mustChangePassword: user.mustChangePassword,
-  lastLoginAt: user.lastLoginAt ? user.lastLoginAt.toISOString() : null,
-});
-
-const invalidRequest = (message: string) => new UserAdminError('invalid_request', 400, message);
-
-const assertPassword = (password: string): void => {
-  const problem = validatePasswordPolicy(password);
-  if (problem) throw new UserAdminError('invalid_password', 400, problem);
-};
-
-const isRole = (value: unknown): value is UserRole => ROLES.includes(value as UserRole);
-
-export const createUserAdminService = (deps: UserAdminDependencies) => {
-  const find = async (id: string): Promise<User> => {
-    const user = UUID_PATTERN.test(id) ? await deps.users.findById(id) : null;
-    if (!user) throw new UserAdminError('not_found', 404, 'Usuário não encontrado.');
-    return user;
-  };
-
-  const assertLocal = (user: User): void => {
-    if (user.provider !== 'local') {
-      throw new UserAdminError('not_local', 400, 'A senha de usuários da intranet é gerenciada na intranet.');
-    }
-  };
-
-  return {
-    async list(): Promise<UserView[]> {
-      return (await deps.users.list()).map(toUserView);
-    },
-
-    async createLocal(actor: string, input: Record<string, unknown>): Promise<UserView> {
-      if (typeof input.username !== 'string' || typeof input.password !== 'string') {
-        throw invalidRequest('Informe usuário e senha.');
-      }
-      const username = normalizeUsername(input.username);
-      if (!USERNAME_PATTERN.test(username)) {
-        throw new UserAdminError('invalid_username', 400, 'Nome de usuário inválido: use de 3 a 64 caracteres entre a-z, 0-9, ".", "_" e "-".');
-      }
-      const role = input.role === undefined ? 'admin' : input.role;
-      if (!isRole(role)) throw new UserAdminError('invalid_role', 400, 'Perfil inválido.');
-      assertPassword(input.password);
-      if (await deps.users.findByUsername(username)) {
-        throw new UserAdminError('username_taken', 409, `O usuário "${username}" já existe.`);
-      }
-
-      const created = await deps.users.create({
-        username,
-        passwordHash: await deps.hash(input.password),
-        role,
-        mustChangePassword: true,
-      });
-      deps.audit({ actor, action: 'user.create', target: username, fields: ['role'] });
-      return toUserView(created);
-    },
-
-    async updateAccess(actor: string, id: string, change: Record<string, unknown>): Promise<UserView> {
-      const target = await find(id);
-      if (change.role === undefined && change.disabled === undefined) throw invalidRequest('Nada para alterar.');
-      if (change.role !== undefined && !isRole(change.role)) throw new UserAdminError('invalid_role', 400, 'Perfil inválido.');
-      if (change.disabled !== undefined && typeof change.disabled !== 'boolean') throw invalidRequest('Situação inválida.');
-
-      try {
-        const updated = await deps.users.updateAccess(id, {
-          role: change.role as UserRole | undefined,
-          disabled: change.disabled as boolean | undefined,
-        });
-        if (change.disabled === true && updated.provider === 'local') await deps.revokeSessions(id);
-        deps.audit({
-          actor,
-          action: 'user.update_access',
-          target: accountLabel(target),
-          fields: ['role', 'disabled'].filter((field) => change[field] !== undefined),
-        });
-        return toUserView(updated);
-      } catch (error) {
-        if (error instanceof LastActiveAdminError) {
-          throw new UserAdminError('last_active_admin', 409, 'Não é possível desativar ou rebaixar o último administrador ativo.');
-        }
-        if (error instanceof UserNotFoundError) throw new UserAdminError('not_found', 404, 'Usuário não encontrado.');
-        throw error;
-      }
-    },
-
-    async resetPassword(actor: string, id: string, password: unknown): Promise<void> {
-      const target = await find(id);
-      assertLocal(target);
-      if (typeof password !== 'string') throw invalidRequest('Informe a nova senha.');
-      assertPassword(password);
-      await deps.users.updatePassword(id, await deps.hash(password), true);
-      await deps.revokeSessions(id);
-      deps.audit({ actor, action: 'user.reset_password', target: accountLabel(target) });
-    },
-
-    async changeOwnPassword(account: User, currentPassword: unknown, newPassword: unknown): Promise<void> {
-      assertLocal(account);
-      if (typeof currentPassword !== 'string' || typeof newPassword !== 'string' || !account.passwordHash) {
-        throw invalidRequest('Informe a senha atual e a nova senha.');
-      }
-      if (!(await deps.verify(currentPassword, account.passwordHash))) {
-        throw new UserAdminError('invalid_current_password', 400, 'A senha atual está incorreta.');
-      }
-      if (currentPassword === newPassword) {
-        throw new UserAdminError('same_password', 400, 'A nova senha precisa ser diferente da atual.');
-      }
-      assertPassword(newPassword);
-      await deps.users.updatePassword(account.id, await deps.hash(newPassword), false);
-      deps.audit({ actor: accountLabel(account), action: 'user.change_own_password', target: accountLabel(account) });
-    },
-  };
-};
-```
 
 Run: `cd backend && npx jest src/services/userAdminService.test.ts` → PASS.
 
-- [ ] **Step 4: Write the failing route and controller tests**
+- [x] **Step 4: Write the failing route and controller tests**
 
 ```ts
 // backend/src/routes/userAdminRoutes.test.ts
@@ -2184,7 +1556,7 @@ import { probeOidcProvider } from '../services/oidcService';
       getOidcSettings: jest.fn().mockResolvedValue(stored),
       updateOidcSettings: jest.fn(),
     };
-    const request = (body: object = {}) => ({ body, auth: { account: { username: 'admin', email: null, oidcSub: null, id: 'a' } } }) as unknown as Request;
+    const request = (body: object = {}) => ({ body, auth: { account: { username: 'admin', email: null, oidcSub: null, oidcIssuer: null, credentialVersion: 0, id: 'a' } } }) as unknown as Request;
 
     beforeEach(() => {
       process.env.APP_ORIGIN = 'http://localhost:5173';
@@ -2198,7 +1570,7 @@ import { probeOidcProvider } from '../services/oidcService';
       expect(mockResponse.json).toHaveBeenCalledWith({
         success: true,
         data: {
-          enabled: true, issuer: 'https://intranet.example', clientId: 'client', clientSecret: '', clientSecretConfigured: true,
+          enabled: true, issuer: 'https://intranet.example', clientId: 'client', clientSecret: '', clientSecretConfigured: true, backchannelAllowed: true,
           backchannelOrigin: '', callbackUrl: 'http://localhost:5173/api/auth/oidc/callback',
         },
       });
@@ -2260,93 +1632,20 @@ Em `configRoutes.test.ts`, acrescentar ao `arrayContaining`:
       expect.objectContaining({ path: '/oidc/test', methods: ['post'], handler: configController.testOidcConfig }),
 ```
 
-- [ ] **Step 5: Run them to verify they fail**
+- [x] **Step 5: Run them to verify they fail**
 
 Run: `cd backend && npx jest src/routes/userAdminRoutes.test.ts src/routes/authRoutes.test.ts src/controllers/configController.test.ts src/routes/configRoutes.test.ts`
 Expected: FAIL — rotas e handlers inexistentes.
 
-- [ ] **Step 6: Implement the routes**
+- [x] **Step 6: Implement the routes**
 
-```ts
-// backend/src/routes/userAdminRoutes.ts
-import { NextFunction, Request, Response, Router } from 'express';
-import type { AuthenticatedRequest } from '../middlewares/authentication';
-import { revokeLocalUserSessions } from '../services/authSessionService';
-import { getUserRepository } from '../services/databaseService';
-import { hashPassword, verifyPassword } from '../services/passwordHasher';
-import { logSettingsChange } from '../services/settingsAudit';
-import { accountLabel, createUserAdminService, UserAdminError } from '../services/userAdminService';
+Implementar no arquivo indicado conforme Interfaces e decisões de segurança desta task.
 
-const router = Router();
-
-// Built per request: the repository only exists after the database is initialized.
-const service = () => createUserAdminService({
-  users: getUserRepository(),
-  hash: hashPassword,
-  verify: verifyPassword,
-  revokeSessions: revokeLocalUserSessions,
-  audit: logSettingsChange,
-});
-
-const actor = (request: Request): string => {
-  const account = (request as AuthenticatedRequest).auth?.account;
-  return account ? accountLabel(account) : 'unknown';
-};
-
-export const handleUserAdmin = (work: (request: Request, response: Response) => Promise<void>) =>
-  async (request: Request, response: Response, next: NextFunction): Promise<void> => {
-    try {
-      await work(request, response);
-    } catch (error) {
-      if (error instanceof UserAdminError) {
-        response.status(error.status).json({ success: false, error: error.code, message: error.message });
-        return;
-      }
-      next(error);
-    }
-  };
-
-router.get('/', handleUserAdmin(async (_request, response) => {
-  response.status(200).json({ success: true, data: await service().list() });
-}));
-
-router.post('/', handleUserAdmin(async (request, response) => {
-  response.status(201).json({ success: true, data: await service().createLocal(actor(request), request.body ?? {}) });
-}));
-
-router.patch('/:id', handleUserAdmin(async (request, response) => {
-  const data = await service().updateAccess(actor(request), request.params.id, request.body ?? {});
-  response.status(200).json({ success: true, data });
-}));
-
-router.post('/:id/password', handleUserAdmin(async (request, response) => {
-  await service().resetPassword(actor(request), request.params.id, request.body?.password);
-  response.status(200).json({ success: true });
-}));
-
-export default router;
-```
 
 Em `authRoutes.ts` (importar `handleUserAdmin` de `./userAdminRoutes`, `createUserAdminService` de `../services/userAdminService`, `hashPassword`, `revokeLocalUserSessions`, `logSettingsChange`):
 
-```ts
-router.post('/password', requireAuthentication, requireTrustedOrigin, handleUserAdmin(async (request, response) => {
-  const account = (request as AuthenticatedRequest).auth?.account;
-  if (!account) {
-    response.status(401).json({ success: false, error: 'Authentication required' });
-    return;
-  }
-  const { currentPassword, newPassword } = (request.body ?? {}) as Record<string, unknown>;
-  await createUserAdminService({
-    users: getUserRepository(),
-    hash: hashPassword,
-    verify: verifyPassword,
-    revokeSessions: revokeLocalUserSessions,
-    audit: logSettingsChange,
-  }).changeOwnPassword(account, currentPassword, newPassword);
-  response.status(200).json({ success: true });
-}));
-```
+Implementar no arquivo indicado conforme Interfaces, contratos complementares e testes desta task.
+
 
 Em `app.ts`:
 
@@ -2358,106 +1657,12 @@ import userAdminRoutes from './routes/userAdminRoutes';
 app.use('/api/admin/users', requireAdmin, configLimiter, userAdminRoutes);
 ```
 
-- [ ] **Step 7: Implement the OIDC configuration handlers**
+- [x] **Step 7: Implement the OIDC configuration handlers**
 
 Em `configController.ts` (imports: `OidcSettings` de `'../models/SystemConfig'`; `OidcError`, `probeOidcProvider`, `validateOidcSettings` de `'../services/oidcService'`; `logSettingsChange` de `'../services/settingsAudit'`; `accountLabel` de `'../services/userAdminService'`; `AuthenticatedRequest` de `'../middlewares/authentication'`):
 
-```ts
-const actorOf = (req: Request): string => {
-  const account = (req as AuthenticatedRequest).auth?.account;
-  return account ? accountLabel(account) : 'unknown';
-};
+Implementar no arquivo indicado conforme Interfaces e decisões de segurança desta task.
 
-const OIDC_FIELDS: Array<keyof OidcSettings> = ['enabled', 'issuer', 'clientId', 'clientSecret', 'backchannelOrigin'];
-
-const EMPTY_OIDC: OidcSettings = { enabled: false, issuer: '', clientId: '', clientSecret: '', backchannelOrigin: '' };
-
-const text = (value: unknown): string => (typeof value === 'string' ? value.trim() : '');
-
-// Empty secret keeps the stored one.
-const readOidcInput = (body: Record<string, unknown>, stored: OidcSettings): OidcSettings => ({
-  enabled: body.enabled === true,
-  issuer: text(body.issuer).replace(/\/$/, ''),
-  clientId: text(body.clientId),
-  clientSecret: text(body.clientSecret) || stored.clientSecret,
-  backchannelOrigin: text(body.backchannelOrigin).replace(/\/$/, ''),
-});
-
-const OIDC_TEST_MESSAGES: Record<string, string> = {
-  provider_unavailable: 'Não foi possível conectar ao issuer.',
-  provider_error: 'O issuer respondeu de forma inválida.',
-};
-
-/**
- * GET /api/config/oidc
- */
-export const getOidcConfig = async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
-  try {
-    const settings = (await getConfigService().getOidcSettings()) ?? EMPTY_OIDC;
-    res.status(200).json({
-      success: true,
-      data: {
-        enabled: settings.enabled,
-        issuer: settings.issuer,
-        clientId: settings.clientId,
-        clientSecret: '',
-        clientSecretConfigured: Boolean(settings.clientSecret),
-        backchannelOrigin: settings.backchannelOrigin,
-        callbackUrl: `${(process.env.APP_ORIGIN || '').replace(/\/$/, '')}/api/auth/oidc/callback`,
-      },
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
-/**
- * POST /api/config/oidc
- */
-export const updateOidcConfig = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-  try {
-    const configService = getConfigService();
-    const stored = (await configService.getOidcSettings()) ?? EMPTY_OIDC;
-    const settings = readOidcInput(req.body ?? {}, stored);
-    if (settings.enabled) validateOidcSettings(settings);
-
-    await configService.updateOidcSettings(settings);
-    logSettingsChange({
-      actor: actorOf(req),
-      action: 'settings.update_oidc',
-      fields: OIDC_FIELDS.filter((field) => settings[field] !== stored[field]),
-    });
-    res.status(200).json({ success: true, message: 'Configuração do login pela intranet salva.' });
-  } catch (error) {
-    if (error instanceof OidcError) {
-      res.status(400).json({ success: false, error: 'invalid_oidc_settings', message: error.message });
-      return;
-    }
-    next(error);
-  }
-};
-
-/**
- * POST /api/config/oidc/test
- */
-export const testOidcConfig = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-  try {
-    const stored = (await getConfigService().getOidcSettings()) ?? EMPTY_OIDC;
-    await probeOidcProvider({ ...readOidcInput(req.body ?? {}, stored), enabled: true });
-    res.status(200).json({ success: true, message: 'Conexão validada: discovery e chaves de assinatura encontrados.' });
-  } catch (error) {
-    if (error instanceof OidcError) {
-      res.status(400).json({
-        success: false,
-        error: 'oidc_test_failed',
-        message: OIDC_TEST_MESSAGES[error.code] ?? error.message,
-      });
-      return;
-    }
-    next(error);
-  }
-};
-```
 
 Acrescentar os três ao `export default`. No `updateMailgridConfig` existente, logo após `await configService.updateMailgridConfig(config);`:
 
@@ -2482,21 +1687,28 @@ router.post('/oidc', configController.updateOidcConfig);
 router.post('/oidc/test', configController.testOidcConfig);
 ```
 
-- [ ] **Step 8: Run tests**
+- [x] **Step 8: Run tests**
 
 Run: `cd backend && npx jest && npx tsc --noEmit && npx eslint src/routes src/controllers src/services/userAdminService.ts src/services/settingsAudit.ts src/app.ts`
 Expected: suíte verde; sem erros.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
-git add backend/src/services/settingsAudit.ts backend/src/services/userAdminService.ts backend/src/services/userAdminService.test.ts backend/src/routes backend/src/controllers/configController.ts backend/src/controllers/configController.test.ts backend/src/app.ts
-git commit -m "feat: add user administration, own password and OIDC settings APIs [Story 4.2]"
+rtk git add backend/src/services/settingsAudit.ts backend/src/services/userAdminService.ts backend/src/services/userAdminService.test.ts backend/src/routes backend/src/controllers/configController.ts backend/src/controllers/configController.test.ts backend/src/app.ts
+rtk git commit -m "feat: add user administration, own password and OIDC settings APIs [Story 4.2]"
 ```
 
 ---
 
 ### Task 7: Barra superior, perfis e troca de senha no frontend (AC 5, 11, 18, 22)
+
+**Contratos frontend explícitos:** em api.ts adicionar `UserRole = 'admin' | 'operator'`, AuthUser com userId/sub/provider/role/mustChangePassword e nome/e-mail opcionais, options com localLoginEnabled/oidcEnabled; `changeOwnPassword(currentPassword: string, newPassword: string): Promise<void>` POST /auth/password. AuthProvider expõe conta atual e refresh/logout; atualizar /me após troca bem-sucedida. `AdminRoute` renderiza Outlet só para admin e Navigate / para operator; guard de senha tem precedência e leva a /account/password. `AppHeader()` substitui headers em Home/Dashboard/Status/Settings; `AccountMenu` exibe Minha senha só para local. Guard deve responder a 403/401 posteriores sem depender apenas do perfil inicial.
+
+**Complemento de contrato frontend (AC10–11):**
+- Em `ChangePasswordPage`, 409 `credentials_changed` mostra mensagem do backend e oferece novo login; limpar estado da conta e navegar a /login, sem simular troca bem-sucedida. Atualizar interceptor/API para 401 e `password_change_required` sem loops em /api/auth/*.
+- [ ] **QA Step 1:** em `frontend/e2e/auth/navigation.spec.ts`, mockar troca de senha com 409 credentials_changed; esperar erro legível e retorno ao login. Manter testes de admin/operator, Minha senha apenas local e troca obrigatória.
+- [ ] **QA Step 2:** `rtk proxy npx playwright test --project=auth-chromium e2e/auth/navigation.spec.ts` em frontend → FAIL antes; implementar e repetir → PASS.
 
 **Files:**
 - Create: `frontend/src/components/Layout/AppHeader.tsx`, `frontend/src/components/Auth/AdminRoute.tsx`, `frontend/src/pages/ChangePasswordPage.tsx`, `frontend/e2e/auth/navigation.spec.ts`
@@ -2637,97 +1849,35 @@ export interface AuthOptions {
 }
 ```
 
-```ts
-export const changeOwnPassword = async (currentPassword: string, newPassword: string): Promise<void> => {
-  await api.post('/auth/password', { currentPassword, newPassword });
-};
+Implementar no arquivo indicado conforme Interfaces, contratos complementares e testes desta task.
 
-// Domain errors carry a Portuguese message from the backend.
-export const apiErrorMessage = (error: unknown, fallback: string): string => {
-  if (axios.isAxiosError(error)) {
-    const message = (error.response?.data as { message?: unknown } | undefined)?.message;
-    if (typeof message === 'string' && message) return message;
-  }
-  return fallback;
-};
-```
 
 No interceptor de resposta, depois do tratamento de `401`:
 
-```ts
-      const errorCode = (error.response.data as { error?: string } | undefined)?.error;
-      if (status === 403 && authEnabled && errorCode === 'password_change_required' && window.location.pathname !== '/account/password') {
-        window.location.assign('/account/password');
-      }
-```
+Implementar no arquivo indicado conforme Interfaces, contratos complementares e testes desta task.
+
 
 - [ ] **Step 4: `AuthProvider`, `AdminRoute`, `AccountMenu`, `AppHeader`**
 
 Em `AuthProvider.tsx`: acrescentar `isAdmin: boolean` a `AuthContextValue`, calcular `const isAdmin = !authEnabled || user?.role === 'admin';`, incluí-lo no `useMemo` (`[loading, user, logout, isAdmin]`) e, no `AuthGate`, antes do `return <>{children}</>` para usuário autenticado:
 
-```tsx
-  if (user?.mustChangePassword && location.pathname !== '/account/password') {
-    return <Navigate to="/account/password" replace />;
-  }
-```
+Implementar o componente no arquivo indicado usando os contratos e os testes desta task; manter os textos e rotas definidos em Global Constraints.
+
 
 (o hook `useLocation` já existe no `AuthGate`; mova a checagem `if (!enabled || user) return <>{children}</>;` para depois dela.)
 
-```tsx
-// frontend/src/components/Auth/AdminRoute.tsx
-import { Navigate, Outlet } from 'react-router-dom';
-import { useAuth } from './AuthProvider';
+Implementar o componente no arquivo indicado usando os contratos e os testes desta task; manter os textos e rotas definidos em Global Constraints.
 
-export function AdminRoute() {
-  const { isAdmin } = useAuth();
-  return isAdmin ? <Outlet /> : <Navigate to="/" replace />;
-}
-```
 
 `AccountMenu.tsx`: dentro do `<div className="flex items-center gap-3">`, antes do botão "Sair":
 
-```tsx
-      {user.provider === 'local' && (
-        <Link to="/account/password" className="px-3 py-2 text-sm font-medium text-gray-700 hover:text-gray-900">
-          Minha senha
-        </Link>
-      )}
-```
+Implementar o componente no arquivo indicado usando os contratos e os testes desta task; manter os textos e rotas definidos em Global Constraints.
+
 
 (importar `Link` de `react-router-dom`).
 
-```tsx
-// frontend/src/components/Layout/AppHeader.tsx
-import { Link, NavLink } from 'react-router-dom';
-import clsx from 'clsx';
-import { AccountMenu } from '../Auth/AccountMenu';
-import { useAuth } from '../Auth/AuthProvider';
+Implementar o componente no arquivo indicado usando os contratos e os testes desta task; manter os textos e rotas definidos em Global Constraints.
 
-const navLinkClass = ({ isActive }: { isActive: boolean }) => clsx(
-  'px-3 py-2 text-sm font-medium rounded-md transition-colors',
-  isActive ? 'bg-primary-50 text-primary-700' : 'text-gray-700 hover:bg-gray-100',
-);
-
-export function AppHeader() {
-  const { isAdmin } = useAuth();
-
-  return (
-    <header className="bg-white shadow-sm">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
-        <div className="flex items-center gap-6">
-          <Link to="/" className="text-lg font-bold text-gray-900">BulkMail Pro</Link>
-          <nav aria-label="Principal" className="flex items-center gap-1">
-            <NavLink to="/" end className={navLinkClass}>Novo Envio</NavLink>
-            <NavLink to="/dashboard" className={navLinkClass}>Dashboard</NavLink>
-            {isAdmin && <NavLink to="/settings" className={navLinkClass}>Configurações</NavLink>}
-          </nav>
-        </div>
-        <AccountMenu />
-      </div>
-    </header>
-  );
-}
-```
 
 - [ ] **Step 5: Replace the page headers**
 
@@ -2735,152 +1885,38 @@ Em cada página, trocar o bloco `<header ...>…</header>` por `<AppHeader />` s
 
 `HomePage.tsx`:
 
-```tsx
-      <AppHeader />
-      <div className="max-w-4xl mx-auto px-4 pt-8">
-        <h1 className="text-2xl font-bold text-gray-900">Novo Envio</h1>
-        <p className="text-gray-600 mt-1">Envio de emails em massa via planilha ou lista manual</p>
-      </div>
-```
+Implementar o componente no arquivo indicado usando os contratos e os testes desta task; manter os textos e rotas definidos em Global Constraints.
+
 
 `DashboardPage.tsx`:
 
-```tsx
-      <AppHeader />
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8">
-        <h1 className="text-2xl font-bold text-gray-900">Dashboard de Envios</h1>
-        <p className="text-gray-600 mt-1 text-sm">Gerencie o histórico de suas campanhas</p>
-      </div>
-```
+Implementar o componente no arquivo indicado usando os contratos e os testes desta task; manter os textos e rotas definidos em Global Constraints.
+
 
 `StatusPage.tsx`:
 
-```tsx
-      <AppHeader />
-      <div className="max-w-6xl mx-auto px-4 pt-8">
-        <h1 className="text-2xl font-bold text-gray-900">Status do Envio</h1>
-        <p className="text-gray-600 mt-1">Acompanhe o progresso do envio de emails</p>
-      </div>
-```
+Implementar o componente no arquivo indicado usando os contratos e os testes desta task; manter os textos e rotas definidos em Global Constraints.
+
 
 `SettingsPage.tsx` (temporário até a Task 8):
 
-```tsx
-      <AppHeader />
-      <div className="max-w-4xl mx-auto px-4 pt-8">
-        <h1 className="text-2xl font-bold text-gray-900">Configurações</h1>
-        <p className="text-gray-600 mt-1">Gerencie as credenciais da API Mailgrid</p>
-      </div>
-```
+Implementar o componente no arquivo indicado usando os contratos e os testes desta task; manter os textos e rotas definidos em Global Constraints.
+
 
 (Os `<main>` existentes continuam como estão; se algum `<main>` tinha `py-8`, mude para `pb-8 pt-6` para não duplicar o espaçamento.)
 
 - [ ] **Step 6: `ChangePasswordPage` and routes**
 
-```tsx
-// frontend/src/pages/ChangePasswordPage.tsx
-import { useState, type FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { AppHeader } from '../components/Layout/AppHeader';
-import { useAuth } from '../components/Auth/AuthProvider';
-import { apiErrorMessage, changeOwnPassword } from '../services/api';
+Implementar o componente no arquivo indicado usando os contratos e os testes desta task; manter os textos e rotas definidos em Global Constraints.
 
-const inputClassName = 'mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-gray-900 focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500';
-
-export default function ChangePasswordPage() {
-  const { user, setUser } = useAuth();
-  const navigate = useNavigate();
-  const [currentPassword, setCurrentPassword] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmation, setConfirmation] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  if (user && user.provider !== 'local') {
-    return (
-      <div className="min-h-screen bg-gray-50">
-        <AppHeader />
-        <main className="max-w-md mx-auto px-4 py-8">
-          <p className="text-gray-700">Sua senha é gerenciada pela intranet.</p>
-        </main>
-      </div>
-    );
-  }
-
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
-    event.preventDefault();
-    setError(null);
-    if (newPassword !== confirmation) {
-      setError('As senhas não conferem.');
-      return;
-    }
-    setSaving(true);
-    try {
-      await changeOwnPassword(currentPassword, newPassword);
-      if (user) setUser({ ...user, mustChangePassword: false });
-      navigate('/', { replace: true });
-    } catch (saveError) {
-      setError(apiErrorMessage(saveError, 'Não foi possível alterar a senha. Tente novamente.'));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className="min-h-screen bg-gray-50">
-      <AppHeader />
-      <main className="max-w-md mx-auto px-4 py-8">
-        <h1 className="text-2xl font-bold text-gray-900">Minha senha</h1>
-        {user?.mustChangePassword && (
-          <p className="mt-2 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">Defina uma nova senha para continuar.</p>
-        )}
-        <form className="mt-6 space-y-4 rounded-lg bg-white p-6 shadow-sm" onSubmit={(event) => void handleSubmit(event)} noValidate>
-          <div>
-            <label htmlFor="current-password" className="block text-sm font-medium text-gray-700">Senha atual</label>
-            <input id="current-password" type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} className={inputClassName} />
-          </div>
-          <div>
-            <label htmlFor="new-password" className="block text-sm font-medium text-gray-700">Nova senha</label>
-            <input id="new-password" type="password" autoComplete="new-password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} className={inputClassName} />
-            <p className="mt-1 text-xs text-gray-500">Mínimo de 12 caracteres.</p>
-          </div>
-          <div>
-            <label htmlFor="confirm-password" className="block text-sm font-medium text-gray-700">Confirme a nova senha</label>
-            <input id="confirm-password" type="password" autoComplete="new-password" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} className={inputClassName} />
-          </div>
-          {error && <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
-          <button
-            type="submit"
-            disabled={saving || !currentPassword || !newPassword || !confirmation}
-            className="w-full rounded-md bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-60"
-          >
-            {saving ? 'Salvando...' : 'Salvar senha'}
-          </button>
-        </form>
-      </main>
-    </div>
-  );
-}
-```
 
 `App.tsx`:
 
-```tsx
-import ChangePasswordPage from './pages/ChangePasswordPage';
-import { AdminRoute } from './components/Auth/AdminRoute';
-```
+Implementar o componente no arquivo indicado usando os contratos e os testes desta task; manter os textos e rotas definidos em Global Constraints.
 
-```tsx
-    <Route element={<ProtectedRoutes />}>
-      <Route path="/" element={<HomePage />} />
-      <Route path="/dashboard" element={<DashboardPage />} />
-      <Route path="/status/:jobId" element={<StatusPage />} />
-      <Route path="/account/password" element={<ChangePasswordPage />} />
-      <Route element={<AdminRoute />}>
-        <Route path="/settings" element={<SettingsPage />} />
-      </Route>
-    </Route>
-```
+
+Implementar o componente no arquivo indicado usando os contratos e os testes desta task; manter os textos e rotas definidos em Global Constraints.
+
 
 - [ ] **Step 7: Login page**
 
@@ -2893,29 +1929,28 @@ Em `LoginPage.tsx`: estado `const [oidcEnabled, setOidcEnabled] = useState(false
 
 e, quando nenhum método estiver disponível (depois de carregar as opções):
 
-```tsx
-          {optionsLoaded && !oidcEnabled && !localLoginEnabled && (
-            <p className="text-center text-sm text-gray-600">Nenhuma forma de login está disponível. Procure o suporte.</p>
-          )}
-```
+Implementar o componente no arquivo indicado usando os contratos e os testes desta task; manter os textos e rotas definidos em Global Constraints.
+
 
 com `const [optionsLoaded, setOptionsLoaded] = useState(false);` marcado no `finally` da busca das opções.
 
 - [ ] **Step 8: Run tests, lint and build**
 
 Run: `cd frontend && npx playwright test --project=auth-chromium --project=chromium && npm run lint && npm run build`
-Expected: todos PASS (incluindo `login.spec.ts` e os specs existentes do projeto `chromium`); lint e build limpos. Restaure `frontend/playwright-report/index.html` com `git checkout -- frontend/playwright-report` se o Playwright o reescrever.
+Expected: todos PASS (incluindo `login.spec.ts` e os specs existentes do projeto `chromium`); lint e build limpos. Restaurar apenas relatórios gerados modificados pela execução, preservando alterações preexistentes.
 
 - [ ] **Step 9: Commit**
 
 ```bash
-git add frontend/src frontend/e2e
-git commit -m "feat: shared navigation bar, admin-only settings link and own password page [Story 4.2]"
+rtk git add frontend/src frontend/e2e
+rtk git commit -m "feat: shared navigation bar, admin-only settings link and own password page [Story 4.2]"
 ```
 
 ---
 
 ### Task 8: Layout de Configurações, Usuários e E-mail (AC 8–10, 14, 23)
+
+**Contratos HTTP/API explícitos:** `ManagedUser` corresponde a UserView da Task 6; `listUsers(): Promise<ManagedUser[]>`, `createLocalUser(input: { username: string; password: string; role: UserRole }): Promise<ManagedUser>`, `updateUserAccess(id: string, change: { role?: UserRole; disabled?: boolean }): Promise<ManagedUser>`, `resetUserPassword(id: string, password: string): Promise<void>`. Preservar mensagens de erro do backend via `apiErrorMessage(error: unknown, fallback: string): string`. A página lista todos, permite criar, promover/rebaixar, ativar/desativar e resetar apenas locais; confirmação de reset e erro last_active_admin devem ser visíveis.
 
 **Files:**
 - Create: `frontend/src/pages/settings/SettingsLayout.tsx`, `frontend/src/pages/settings/SettingsUsersPage.tsx`, `frontend/src/pages/settings/SettingsEmailPage.tsx`, `frontend/e2e/auth/settings.spec.ts`
@@ -3039,93 +2074,13 @@ Expected: FAIL — `/settings/users` inexistente.
 
 Em `api.ts`:
 
-```ts
-export interface ManagedUser {
-  id: string;
-  provider: 'local' | 'oidc';
-  username: string | null;
-  name: string | null;
-  email: string | null;
-  role: UserRole;
-  disabled: boolean;
-  mustChangePassword: boolean;
-  lastLoginAt: string | null;
-}
+Implementar no arquivo indicado conforme Interfaces, contratos complementares e testes desta task.
 
-export const listUsers = async (): Promise<ManagedUser[]> => {
-  const response = await api.get<ConfigResponse<ManagedUser[]>>('/admin/users');
-  return response.data.data;
-};
-
-export const createLocalUser = async (input: { username: string; password: string; role: UserRole }): Promise<ManagedUser> => {
-  const response = await api.post<ConfigResponse<ManagedUser>>('/admin/users', input);
-  return response.data.data;
-};
-
-export const updateUserAccess = async (id: string, change: { role?: UserRole; disabled?: boolean }): Promise<ManagedUser> => {
-  const response = await api.patch<ConfigResponse<ManagedUser>>(`/admin/users/${id}`, change);
-  return response.data.data;
-};
-
-export const resetUserPassword = async (id: string, password: string): Promise<void> => {
-  await api.post(`/admin/users/${id}/password`, { password });
-};
-```
 
 - [ ] **Step 4: Layout and Email page**
 
-```tsx
-// frontend/src/pages/settings/SettingsLayout.tsx
-import { NavLink, Outlet } from 'react-router-dom';
-import clsx from 'clsx';
-import { AppHeader } from '../../components/Layout/AppHeader';
+Implementar o componente no arquivo indicado usando os contratos e os testes desta task; manter os textos e rotas definidos em Global Constraints.
 
-const SECTIONS = [
-  { to: '/settings/users', label: 'Usuários' },
-  { to: '/settings/email', label: 'E-mail' },
-  { to: '/settings/oidc', label: 'Login intranet' },
-];
-
-const sideLinkClass = ({ isActive }: { isActive: boolean }) => clsx(
-  'block rounded-md px-3 py-2 text-sm font-medium',
-  isActive ? 'bg-primary-50 text-primary-700' : 'text-gray-700 hover:bg-gray-100',
-);
-
-const tabLinkClass = ({ isActive }: { isActive: boolean }) => clsx(
-  'whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium',
-  isActive ? 'border-primary-600 text-primary-700' : 'border-transparent text-gray-600 hover:text-gray-900',
-);
-
-export function SettingsLayout() {
-  return (
-    <div className="min-h-screen bg-gray-50">
-      <AppHeader />
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <h1 className="text-2xl font-bold text-gray-900">Configurações</h1>
-
-        <nav aria-label="Configurações" className="mt-4 flex gap-2 overflow-x-auto border-b border-gray-200 md:hidden">
-          {SECTIONS.map((section) => (
-            <NavLink key={section.to} to={section.to} className={tabLinkClass}>{section.label}</NavLink>
-          ))}
-        </nav>
-
-        <div className="mt-6 flex gap-8">
-          <aside className="hidden md:block w-56 shrink-0">
-            <nav aria-label="Configurações" className="flex flex-col gap-1">
-              {SECTIONS.map((section) => (
-                <NavLink key={section.to} to={section.to} className={sideLinkClass}>{section.label}</NavLink>
-              ))}
-            </nav>
-          </aside>
-          <section className="flex-1 min-w-0">
-            <Outlet />
-          </section>
-        </div>
-      </div>
-    </div>
-  );
-}
-```
 
 `SettingsEmailPage.tsx`: `git mv frontend/src/pages/SettingsPage.tsx frontend/src/pages/settings/SettingsEmailPage.tsx`, depois:
 - renomear o componente para `export default function SettingsEmailPage()` (remova o export nomeado `SettingsPage` e qualquer `export default SettingsPage` antigo);
@@ -3135,223 +2090,18 @@ export function SettingsLayout() {
 
 - [ ] **Step 5: Users page**
 
-```tsx
-// frontend/src/pages/settings/SettingsUsersPage.tsx
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import {
-  apiErrorMessage, createLocalUser, listUsers, resetUserPassword, updateUserAccess,
-  type ManagedUser, type UserRole,
-} from '../../services/api';
+Implementar o componente no arquivo indicado usando os contratos e os testes desta task; manter os textos e rotas definidos em Global Constraints.
 
-const ROLE_LABELS: Record<UserRole, string> = { admin: 'Administrador', operator: 'Operador' };
-const inputClassName = 'mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-gray-900 focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500';
-const actionClassName = 'rounded-md border border-gray-300 bg-white px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60';
-
-const displayName = (user: ManagedUser): string => user.name ?? user.username ?? user.email ?? user.id;
-
-const formatLastLogin = (value: string | null): string =>
-  value ? new Date(value).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : 'Nunca';
-
-export default function SettingsUsersPage() {
-  const [users, setUsers] = useState<ManagedUser[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [busyId, setBusyId] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [role, setRole] = useState<UserRole>('admin');
-  const [creating, setCreating] = useState(false);
-  const [passwordFor, setPasswordFor] = useState<string | null>(null);
-  const [newPassword, setNewPassword] = useState('');
-
-  const load = useCallback(async () => {
-    try {
-      setUsers(await listUsers());
-    } catch (loadError) {
-      setError(apiErrorMessage(loadError, 'Não foi possível carregar os usuários.'));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { void load(); }, [load]);
-
-  const replace = (updated: ManagedUser) => setUsers((current) => current.map((user) => (user.id === updated.id ? updated : user)));
-
-  const run = async (id: string, action: () => Promise<void>) => {
-    setBusyId(id);
-    setError(null);
-    setNotice(null);
-    try {
-      await action();
-    } catch (actionError) {
-      setError(apiErrorMessage(actionError, 'Não foi possível concluir a ação.'));
-    } finally {
-      setBusyId(null);
-    }
-  };
-
-  const handleCreate = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setCreating(true);
-    setError(null);
-    setNotice(null);
-    try {
-      const created = await createLocalUser({ username, password, role });
-      setUsers((current) => [...current, created]);
-      setNotice(`Usuário "${created.username}" criado. A senha deverá ser trocada no primeiro acesso.`);
-      setUsername('');
-      setPassword('');
-      setRole('admin');
-    } catch (createError) {
-      setError(apiErrorMessage(createError, 'Não foi possível criar o usuário.'));
-    } finally {
-      setCreating(false);
-    }
-  };
-
-  const handleResetPassword = async (event: FormEvent<HTMLFormElement>, user: ManagedUser) => {
-    event.preventDefault();
-    await run(user.id, async () => {
-      await resetUserPassword(user.id, newPassword);
-      setNotice(`Senha de "${displayName(user)}" definida. Ela deverá ser trocada no próximo acesso.`);
-      setPasswordFor(null);
-      setNewPassword('');
-      replace({ ...user, mustChangePassword: true });
-    });
-  };
-
-  return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-lg font-semibold text-gray-900">Usuários</h2>
-        <p className="text-sm text-gray-600 mt-1">Usuários da intranet aparecem aqui após o primeiro acesso.</p>
-      </div>
-
-      {error && <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
-      {notice && <p role="status" className="rounded-md bg-green-50 px-3 py-2 text-sm text-green-700">{notice}</p>}
-
-      <div className="overflow-x-auto rounded-lg bg-white shadow-sm">
-        <table className="min-w-full divide-y divide-gray-200 text-sm">
-          <thead className="bg-gray-50 text-left text-xs font-medium uppercase text-gray-500">
-            <tr>
-              <th className="px-4 py-3">Usuário</th>
-              <th className="px-4 py-3">Origem</th>
-              <th className="px-4 py-3">Perfil</th>
-              <th className="px-4 py-3">Situação</th>
-              <th className="px-4 py-3">Último acesso</th>
-              <th className="px-4 py-3">Ações</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-200">
-            {loading && (
-              <tr><td colSpan={6} className="px-4 py-6 text-center text-gray-500">Carregando...</td></tr>
-            )}
-            {users.map((user) => (
-              <tr key={user.id}>
-                <td className="px-4 py-3">
-                  <div className="font-medium text-gray-900">{displayName(user)}</div>
-                  {user.email && <div className="text-xs text-gray-500">{user.email}</div>}
-                </td>
-                <td className="px-4 py-3 text-gray-700">{user.provider === 'local' ? 'Local' : 'Intranet'}</td>
-                <td className="px-4 py-3 text-gray-700">{ROLE_LABELS[user.role]}</td>
-                <td className="px-4 py-3 text-gray-700">
-                  {user.disabled ? 'Desativado' : 'Ativo'}
-                  {user.mustChangePassword && <div className="text-xs text-amber-700">Troca de senha pendente</div>}
-                </td>
-                <td className="px-4 py-3 text-gray-700">{formatLastLogin(user.lastLoginAt)}</td>
-                <td className="px-4 py-3">
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      className={actionClassName}
-                      disabled={busyId === user.id}
-                      onClick={() => void run(user.id, async () => replace(await updateUserAccess(user.id, { role: user.role === 'admin' ? 'operator' : 'admin' })))}
-                    >
-                      {user.role === 'admin' ? 'Tornar operador' : 'Tornar administrador'}
-                    </button>
-                    <button
-                      type="button"
-                      className={actionClassName}
-                      disabled={busyId === user.id}
-                      onClick={() => void run(user.id, async () => replace(await updateUserAccess(user.id, { disabled: !user.disabled })))}
-                    >
-                      {user.disabled ? 'Reativar' : 'Desativar'}
-                    </button>
-                    {user.provider === 'local' && (
-                      <button type="button" className={actionClassName} onClick={() => { setPasswordFor(user.id); setNewPassword(''); }}>
-                        Definir senha
-                      </button>
-                    )}
-                  </div>
-                  {passwordFor === user.id && (
-                    <form className="mt-2 flex gap-2" onSubmit={(event) => void handleResetPassword(event, user)}>
-                      <label htmlFor={`password-${user.id}`} className="sr-only">Nova senha para {displayName(user)}</label>
-                      <input id={`password-${user.id}`} type="password" autoComplete="new-password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} className="rounded-md border border-gray-300 bg-white px-2 py-1 text-sm text-gray-900" />
-                      <button type="submit" className={actionClassName} disabled={!newPassword || busyId === user.id}>Salvar</button>
-                      <button type="button" className={actionClassName} onClick={() => setPasswordFor(null)}>Cancelar</button>
-                    </form>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      <form className="rounded-lg bg-white p-6 shadow-sm space-y-4" onSubmit={(event) => void handleCreate(event)} noValidate>
-        <h3 className="text-base font-semibold text-gray-900">Criar usuário local</h3>
-        <div className="grid gap-4 md:grid-cols-3">
-          <div>
-            <label htmlFor="new-username" className="block text-sm font-medium text-gray-700">Novo usuário</label>
-            <input id="new-username" autoComplete="off" value={username} onChange={(event) => setUsername(event.target.value)} className={inputClassName} />
-          </div>
-          <div>
-            <label htmlFor="initial-password" className="block text-sm font-medium text-gray-700">Senha inicial</label>
-            <input id="initial-password" type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} className={inputClassName} />
-          </div>
-          <div>
-            <label htmlFor="new-role" className="block text-sm font-medium text-gray-700">Perfil</label>
-            <select id="new-role" value={role} onChange={(event) => setRole(event.target.value as UserRole)} className={inputClassName}>
-              <option value="admin">Administrador</option>
-              <option value="operator">Operador</option>
-            </select>
-          </div>
-        </div>
-        <button
-          type="submit"
-          disabled={creating || !username.trim() || !password}
-          className="rounded-md bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-60"
-        >
-          {creating ? 'Criando...' : 'Criar usuário'}
-        </button>
-      </form>
-    </div>
-  );
-}
-```
 
 - [ ] **Step 6: Routes**
 
 `App.tsx` — remover o import de `SettingsPage` e:
 
-```tsx
-import { Navigate } from 'react-router-dom';
-import { SettingsLayout } from './pages/settings/SettingsLayout';
-import SettingsUsersPage from './pages/settings/SettingsUsersPage';
-import SettingsEmailPage from './pages/settings/SettingsEmailPage';
-```
+Implementar o componente no arquivo indicado usando os contratos e os testes desta task; manter os textos e rotas definidos em Global Constraints.
 
-```tsx
-      <Route element={<AdminRoute />}>
-        <Route path="/settings" element={<SettingsLayout />}>
-          <Route index element={<Navigate to="users" replace />} />
-          <Route path="users" element={<SettingsUsersPage />} />
-          <Route path="email" element={<SettingsEmailPage />} />
-        </Route>
-      </Route>
-```
+
+Implementar o componente no arquivo indicado usando os contratos e os testes desta task; manter os textos e rotas definidos em Global Constraints.
+
 
 (`Navigate` pode vir no mesmo import de `react-router-dom` já existente.)
 
@@ -3363,13 +2113,20 @@ Expected: PASS; restaure `frontend/playwright-report` se alterado.
 - [ ] **Step 8: Commit**
 
 ```bash
-git add -A frontend/src frontend/e2e
-git commit -m "feat: settings layout with side menu, users and e-mail sections [Story 4.2]"
+rtk git add -A frontend/src frontend/e2e
+rtk git commit -m "feat: settings layout with side menu, users and e-mail sections [Story 4.2]"
 ```
 
 ---
 
 ### Task 9: Configuração do login pela intranet (AC 15, 16, 17)
+
+**Contratos API explícitos:** `OidcConfig` corresponde ao DTO GET da Task 6 (todos campos string exceto enabled, clientSecretConfigured e backchannelAllowed boolean). `OidcConfigInput = Pick<OidcConfig, 'enabled' | 'issuer' | 'clientId' | 'clientSecret' | 'backchannelOrigin'>`; `getOidcConfig(): Promise<OidcConfig>`, `saveOidcConfig(input: OidcConfigInput): Promise<string>`, `testOidcConfig(input: OidcConfigInput): Promise<string>` retornam mensagens do backend. Copiar callback somente leitura e limpar input de segredo após sucesso.
+
+**Complemento de contrato frontend (AC15, 17):**
+- Resposta GET OIDC adiciona `backchannelAllowed: boolean` calculado no backend como NODE_ENV !== production; OidcConfig inclui campo somente leitura. Página só renderiza input Backchannel origin quando true; produção envia vazio.
+- [ ] **QA Step 1:** em `frontend/e2e/auth/settings.spec.ts`, fixture de produção com backchannelAllowed=false; esperar `getByLabel('Backchannel origin')` ausente e POST com backchannelOrigin vazio. Fixture local true mostra campo. Fixture enabled=false e issuer inválido recebe 400 e exibe erro.
+- [ ] **QA Step 2:** rodar teste alvo → FAIL; implementar DTO/controller/página; repetir → PASS. Incluir teste backend de backchannelAllowed em configController.test.ts.
 
 **Files:**
 - Create: `frontend/src/pages/settings/SettingsOidcPage.tsx`
@@ -3386,7 +2143,7 @@ Acrescentar a `settings.spec.ts`:
 ```ts
 const oidcConfig = {
   enabled: true, issuer: 'https://intranet.crefito11.gov.br', clientId: 'bulkmail', clientSecret: '',
-  clientSecretConfigured: true, backchannelOrigin: '', callbackUrl: 'http://127.0.0.1:5174/api/auth/oidc/callback',
+  clientSecretConfigured: true, backchannelAllowed: true, backchannelOrigin: '', callbackUrl: 'http://127.0.0.1:5174/api/auth/oidc/callback',
 };
 
 test.describe('Intranet login settings', () => {
@@ -3447,162 +2204,13 @@ Expected: FAIL — `/settings/oidc` inexistente.
 
 - [ ] **Step 3: API functions**
 
-```ts
-export interface OidcConfig {
-  enabled: boolean;
-  issuer: string;
-  clientId: string;
-  clientSecret: string;
-  clientSecretConfigured: boolean;
-  backchannelOrigin: string;
-  callbackUrl: string;
-}
+Implementar no arquivo indicado conforme Interfaces, contratos complementares e testes desta task.
 
-export type OidcConfigInput = Pick<OidcConfig, 'enabled' | 'issuer' | 'clientId' | 'clientSecret' | 'backchannelOrigin'>;
-
-export const getOidcConfig = async (): Promise<OidcConfig> => {
-  const response = await api.get<ConfigResponse<OidcConfig>>('/config/oidc');
-  return response.data.data;
-};
-
-export const saveOidcConfig = async (input: OidcConfigInput): Promise<string> => {
-  const response = await api.post<{ success: boolean; message: string }>('/config/oidc', input);
-  return response.data.message;
-};
-
-export const testOidcConfig = async (input: OidcConfigInput): Promise<string> => {
-  const response = await api.post<{ success: boolean; message: string }>('/config/oidc/test', input);
-  return response.data.message;
-};
-```
 
 - [ ] **Step 4: Page and route**
 
-```tsx
-// frontend/src/pages/settings/SettingsOidcPage.tsx
-import { useEffect, useState, type FormEvent } from 'react';
-import {
-  apiErrorMessage, getOidcConfig, saveOidcConfig, testOidcConfig, type OidcConfig, type OidcConfigInput,
-} from '../../services/api';
+Implementar o componente no arquivo indicado usando os contratos e os testes desta task; manter os textos e rotas definidos em Global Constraints.
 
-const inputClassName = 'mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-gray-900 focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500';
-const secondaryButton = 'rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60';
-
-export default function SettingsOidcPage() {
-  const [config, setConfig] = useState<OidcConfig | null>(null);
-  const [form, setForm] = useState<OidcConfigInput>({ enabled: false, issuer: '', clientId: '', clientSecret: '', backchannelOrigin: '' });
-  const [busy, setBusy] = useState<'save' | 'test' | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
-
-  useEffect(() => {
-    getOidcConfig()
-      .then((loaded) => {
-        setConfig(loaded);
-        setForm({ enabled: loaded.enabled, issuer: loaded.issuer, clientId: loaded.clientId, clientSecret: '', backchannelOrigin: loaded.backchannelOrigin });
-      })
-      .catch((loadError) => setError(apiErrorMessage(loadError, 'Não foi possível carregar a configuração.')));
-  }, []);
-
-  const update = <K extends keyof OidcConfigInput>(key: K, value: OidcConfigInput[K]) => setForm((current) => ({ ...current, [key]: value }));
-
-  const submit = async (kind: 'save' | 'test') => {
-    setBusy(kind);
-    setError(null);
-    setNotice(null);
-    try {
-      setNotice(kind === 'save' ? await saveOidcConfig(form) : await testOidcConfig(form));
-      if (kind === 'save' && form.clientSecret && config) {
-        setConfig({ ...config, clientSecretConfigured: true });
-        update('clientSecret', '');
-      }
-    } catch (submitError) {
-      setError(apiErrorMessage(submitError, kind === 'save' ? 'Não foi possível salvar.' : 'Não foi possível testar a conexão.'));
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const copyCallback = async () => {
-    if (!config) return;
-    await navigator.clipboard.writeText(config.callbackUrl);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    void submit('save');
-  };
-
-  if (!config && !error) return <div className="py-12 text-center text-gray-500">Carregando...</div>;
-
-  return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-lg font-semibold text-gray-900">Login intranet</h2>
-        <p className="text-sm text-gray-600 mt-1">Conexão OIDC com a intranet do CREFITO 11.</p>
-      </div>
-
-      {error && <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
-      {notice && <p role="status" className="rounded-md bg-green-50 px-3 py-2 text-sm text-green-700">{notice}</p>}
-
-      {config && (
-        <form className="space-y-4 rounded-lg bg-white p-6 shadow-sm" onSubmit={handleSubmit} noValidate>
-          <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
-            <input type="checkbox" checked={form.enabled} onChange={(event) => update('enabled', event.target.checked)} />
-            Ativar login pela intranet
-          </label>
-
-          <div>
-            <label htmlFor="oidc-issuer" className="block text-sm font-medium text-gray-700">Issuer</label>
-            <input id="oidc-issuer" value={form.issuer} onChange={(event) => update('issuer', event.target.value)} className={inputClassName} placeholder="https://intranet.crefito11.gov.br" />
-          </div>
-          <div>
-            <label htmlFor="oidc-client-id" className="block text-sm font-medium text-gray-700">Client ID</label>
-            <input id="oidc-client-id" value={form.clientId} onChange={(event) => update('clientId', event.target.value)} className={inputClassName} />
-          </div>
-          <div>
-            <label htmlFor="oidc-client-secret" className="block text-sm font-medium text-gray-700">Client secret</label>
-            <input
-              id="oidc-client-secret"
-              type="password"
-              autoComplete="new-password"
-              value={form.clientSecret}
-              onChange={(event) => update('clientSecret', event.target.value)}
-              className={inputClassName}
-              placeholder={config.clientSecretConfigured ? 'Configurado — deixe em branco para manter' : ''}
-            />
-          </div>
-          <div>
-            <label htmlFor="oidc-backchannel" className="block text-sm font-medium text-gray-700">Backchannel origin</label>
-            <input id="oidc-backchannel" value={form.backchannelOrigin} onChange={(event) => update('backchannelOrigin', event.target.value)} className={inputClassName} />
-            <p className="mt-1 text-xs text-gray-500">Somente para desenvolvimento local; deixe em branco em produção.</p>
-          </div>
-          <div>
-            <label htmlFor="oidc-callback" className="block text-sm font-medium text-gray-700">URL de callback</label>
-            <div className="mt-1 flex gap-2">
-              <input id="oidc-callback" readOnly value={config.callbackUrl} className={`${inputClassName} mt-0 bg-gray-50`} />
-              <button type="button" className={secondaryButton} onClick={() => void copyCallback()}>{copied ? 'Copiado!' : 'Copiar'}</button>
-            </div>
-            <p className="mt-1 text-xs text-gray-500">Cadastre esta URL no cliente OIDC da intranet.</p>
-          </div>
-
-          <div className="flex gap-3">
-            <button type="button" className={secondaryButton} disabled={busy !== null} onClick={() => void submit('test')}>
-              {busy === 'test' ? 'Testando...' : 'Testar'}
-            </button>
-            <button type="submit" disabled={busy !== null} className="rounded-md bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-60">
-              {busy === 'save' ? 'Salvando...' : 'Salvar'}
-            </button>
-          </div>
-        </form>
-      )}
-    </div>
-  );
-}
-```
 
 `App.tsx`: `import SettingsOidcPage from './pages/settings/SettingsOidcPage';` e, dentro de `/settings`, `<Route path="oidc" element={<SettingsOidcPage />} />`.
 
@@ -3614,13 +2222,21 @@ Expected: PASS; restaure `frontend/playwright-report` se alterado.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add frontend/src frontend/e2e
-git commit -m "feat: intranet login settings page with connection test [Story 4.2]"
+rtk git add frontend/src frontend/e2e
+rtk git commit -m "feat: intranet login settings page with connection test [Story 4.2]"
 ```
 
 ---
 
 ### Task 10: Deploy, runbook e verificação (AC 19, 20, 21)
+
+**Complemento de runbook e verificação (AC7, 19–21):**
+- Antes do deploy garantir admin local e guardar backup do banco; documentar binding de sessões legadas, exigência de novo login após alteração incompatível OIDC e recuperação de erro de secret file. Não imprimir segredos/fingerprints.
+- Não fazer rolling deploy com versões antigas/nova simultâneas após rename local_users: parar backend/workers antigos, executar migration, iniciar nova versão. Registrar janela de manutenção e procedimento de recuperação pelo backup; rollback de migration destrutivo não é automático.
+- Checklist pós-deploy inclui sessão OIDC pré-deploy com configuração inalterada, tentativa CLI de desativar último admin, reset e rejeição de sessão antiga, mudança de issuer sem transferência de perfil, importação sem secrets ausentes.
+- Gate adicional: `rtk npm run build` em backend (não só tsc --noEmit). Frontend build inclui typecheck; backend não possui script typecheck, usar `rtk proxy npx tsc --noEmit`. Não adicionar scripts/dependências apenas para satisfazer nomes de comandos.
+- Integrações concorrentes exigem Postgres descartável, sessões reais exigem Redis descartável; não tocar dados de produção. Atualizar test:integration para nomes novos e testes CAS/concorrência. Executar testes unitários completos, integrações PG/Redis, frontend lint/build e ambos projetos Playwright.
+- Atualizar checklist e File List da story apenas com tarefas efetivamente concluídas. Nesta revisão registrar documentos, mantendo Draft; Ready for Review somente após implementação e gates executados.
 
 **Files:**
 - Modify: `docker-compose.prod.yml`, `docker-compose.yml`, `deploy/production.env.example`, `.env.example`, `docs/production.md`, `docs/stories/4.2.feat-settings-admin.story.md`
@@ -3658,7 +2274,7 @@ uma única vez os valores atuais de `MAILGRID_*` e `OIDC_*` (incluindo os Docker
 Confirme a importação:
 
 ```bash
-docker service logs --since 10m bulkmail_backend | grep 'settings.import_environment'
+rtk docker service logs --since 10m bulkmail_backend | grep 'settings.import_environment'
 ```
 
 Depois, entre como administrador e confira **Configurações → E-mail** e
@@ -3669,7 +2285,7 @@ Depois, entre como administrador e confira **Configurações → E-mail** e
 
 - Usuários da intranet entram como **Operador** no primeiro acesso; promova-os em
   **Configurações → Usuários**.
-- Sessões abertas antes do deploy continuam válidas; os usuários aparecem como Operador.
+- Sessões abertas antes do deploy continuam válidas enquanto a configuração importada permanecer compatível; sua identidade é vinculada ao issuer original e os usuários aparecem como Operador. Mudanças incompatíveis exigem novo login.
   Garanta que exista ao menos um administrador local (`npm run user:admin -- create`)
   antes de depender da tela.
 
@@ -3694,35 +2310,35 @@ acesso de emergência e sempre criam administradores.
 - [ ] **Step 3: Full verification**
 
 ```bash
-cd backend && npx tsc --noEmit && npm run lint && npx jest
-cd ../frontend && npm run lint && npm run build && npx playwright test --project=auth-chromium --project=chromium
-git checkout -- playwright-report 2>/dev/null || true
+cd backend && rtk proxy npx tsc --noEmit && rtk npm run lint && rtk proxy npx jest
+cd ../frontend && rtk npm run lint && rtk npm run build && rtk proxy npx playwright test --project=auth-chromium --project=chromium
+rtk # Revisar git diff antes de restaurar apenas relatórios gerados.
 ```
 
 Com Postgres descartável (seção "Banco de teste"):
 
 ```bash
-cd backend && POSTGRES_PORT=55432 npm run migrate && RUN_DATABASE_INTEGRATION=true POSTGRES_PORT=55432 npx jest src/repositories --runInBand
+cd backend && POSTGRES_PORT=55432 rtk npm run migrate && RUN_DATABASE_INTEGRATION=true POSTGRES_PORT=55432 rtk proxy npx jest src/repositories --runInBand
 ```
 
 Validar os compose:
 
 ```bash
-POSTGRES_USER=x POSTGRES_DB=x APP_ORIGIN=x CREFITO11_LOGO_URL=x BACKEND_IMAGE=x FRONTEND_IMAGE=x docker compose -f docker-compose.prod.yml config --quiet
-docker compose -f docker-compose.yml config --quiet
+POSTGRES_USER=x POSTGRES_DB=x APP_ORIGIN=x CREFITO11_LOGO_URL=x BACKEND_IMAGE=x FRONTEND_IMAGE=x rtk docker compose -f docker-compose.prod.yml config --quiet
+rtk docker compose -f docker-compose.yml config --quiet
 ```
 
 Expected: tudo verde; os compose validam sem `OIDC_ISSUER`/`OIDC_CLIENT_ID`.
 
 - [ ] **Step 4: Story record**
 
-Em `docs/stories/4.2.feat-settings-admin.story.md`: `status: "InReview"` e `InReview` em `## Status`; `### File List` com a saída de `git diff --name-only main..HEAD` mais os arquivos desta task; Change Log: `| 2026-10-10 | 0.2 | Implementação concluída; status Draft → InReview | Claude |`.
+Em `docs/stories/4.2.feat-settings-admin.story.md`: `status: "Ready for Review"` e `Ready for Review` em `## Status`; `### File List` com a saída de `git diff --name-only main..HEAD` mais os arquivos desta task; Change Log: `| 2026-10-10 | 0.2 | Implementação concluída; status Draft → Ready for Review | Claude |`.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add docker-compose.prod.yml docker-compose.yml deploy/production.env.example .env.example docs/production.md docs/stories/4.2.feat-settings-admin.story.md
-git commit -m "docs: settings in database runbook and optional OIDC env [Story 4.2]"
+rtk git add docker-compose.prod.yml docker-compose.yml deploy/production.env.example .env.example docs/production.md docs/stories/4.2.feat-settings-admin.story.md
+rtk git commit -m "docs: settings in database runbook and optional OIDC env [Story 4.2]"
 ```
 
 - [ ] **Step 6: Post-deploy checklist (executado pelo usuário)**
@@ -3731,3 +2347,11 @@ git commit -m "docs: settings in database runbook and optional OIDC env [Story 4
 2. Entrar com o admin local; abrir **Configurações → E-mail** e **Login intranet**; usar **Testar**.
 3. Entrar pela intranet numa janela anônima: deve aparecer como Operador, sem o link Configurações; promover pelo admin e recarregar.
 4. Criar um usuário local de teste, entrar com ele, confirmar a troca obrigatória de senha e depois desativá-lo.
+
+## Auto-revisão documental
+
+- AC1/12 → Task 1; AC6 → Task 2; AC13/19 → Task 3; AC17/18 → Task 4; AC2–5/7/11 → Task 5; AC8–11/14–17/24 → Task 6; AC5/11/18/22 → Task 7; AC8–10/14/23 → Task 8; AC15–17 → Task 9; AC19–21 → Task 10.
+- Achados QA 1–7 incorporados com testes de identidade, snapshot, CLI, CAS/versão, validação disabled, concorrência e falha de secret file.
+- Contratos novos têm produtores e consumidores identificados; exemplos remanescentes de testes devem incluir issuer/fingerprint/credentialVersion nas fixtures conforme Interfaces.
+- Os ciclos QA complementares integram-se antes do commit da respectiva task; não são tarefas pós-implementação.
+- Esta auto-revisão documental original não substitui testes ou aprovação da implementação; as evidências e os pareceres por tarefa estão resumidos no checkpoint de retomada.
