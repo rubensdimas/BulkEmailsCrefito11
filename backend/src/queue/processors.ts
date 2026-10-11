@@ -13,7 +13,6 @@ import {
   getJobRepository,
   getEmailLogRepository,
   getConfigService,
-  isDatabaseReady,
 } from "../services/databaseService";
 import { generateUniqueHash, wasEmailSent } from "../services/idempotencyService";
 import { renderInstitutionalEmailTemplate } from "../services/emailTemplateService";
@@ -68,7 +67,7 @@ export const classifyError = (errorMessage: string): ErrorType => {
 const MAX_RETRY_ATTEMPTS = 3;
 
 // Default sender
-const DEFAULT_FROM = process.env.MAILGRID_SENDER || process.env.SMTP_SENDER || "noreply@bulkmail.com";
+const DEFAULT_FROM = "noreply@bulkmail.com";
 
 /**
  * Send email via Mailgrid API
@@ -114,15 +113,7 @@ export const sendEmail = async (
   });
 
   try {
-    const config = isDatabaseReady()
-      ? await getConfigService().getMailgridConfig()
-      : {
-          host: process.env.MAILGRID_HOST || process.env.SMTP_HOST || "",
-          user: process.env.MAILGRID_USER || process.env.SMTP_USER || "",
-          pass: process.env.MAILGRID_PASS || process.env.SMTP_PASS || "",
-          from_address: process.env.MAILGRID_SENDER || process.env.SMTP_SENDER || "",
-          from_name: process.env.MAILGRID_SENDER_NAME || process.env.SMTP_SENDER_NAME || "BulkMail Pro",
-        };
+    const config = await getConfigService().getMailgridConfig();
     const info = await sendViaMailgrid(config, {
       from: from || config.from_address,
       fromName: config.from_name,

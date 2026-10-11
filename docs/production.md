@@ -146,6 +146,158 @@ O frontend está fixado em `react-router-dom@7.18.2`. A auditoria npm atual asso
 
 Não faça downgrade automático do React Router para eliminar o alerta: versões anteriores reintroduzem avisos de redirect já corrigidos. Reavalie e atualize para uma versão sem alertas quando ela estiver disponível. Esta exceção deixa de ser válida imediatamente se o projeto adotar SSR, RSC ou Server Actions.
 
+## Configurações no banco (Mailgrid e login pela intranet)
+
+Desde a Story 4.2, Mailgrid e OIDC são configurados em **Configurações** (somente
+administradores) e ficam na tabela `configurations`, com segredos criptografados por
+`CONFIG_ENCRYPTION_KEY`. Continuam no ambiente: Postgres, Redis, `APP_ORIGIN`,
+`CONFIG_ENCRYPTION_KEY`, `OIDC_SESSION_ENCRYPTION_KEY`, `TRUST_PROXY_HOPS` e
+`LOCAL_LOGIN_ENABLED`.
+
+No primeiro start da nova versão, se o banco não tiver a configuração, o backend copia
+uma única vez os valores atuais de `MAILGRID_*` e `OIDC_*` (incluindo os Docker secrets).
+Confirme a importação pela linha de log (`mailgrid=true`/`oidc=true` indica que a seção foi
+importada neste start; `false` indica que nada foi importado, seja porque o banco já tinha a
+configuração, seja porque o ambiente não tinha valores para a seção — `MAILGRID_HOST` ou
+`OIDC_ISSUER` ausentes):
+
+```bash
+docker service logs --since 10m bulkmail_backend | grep '\[Settings\] import_environment'
+```
+
+Uma falha aparece como `Database configuration initialization failed: <motivo>`; o motivo é
+um texto fixo (ou o nome/código do erro do banco) e nunca inclui valores de segredos.
+
+Se o banco já tinha uma configuração do Mailgrid sem token do webhook, o log também mostra
+`[Settings] mailgrid webhook token not configured`: o token **não** é lido do ambiente nesse
+caso, e os webhooks do Mailgrid respondem `503` até que ele seja informado na tela.
+
+Depois, entre como administrador e confira **Configurações → E-mail** e
+**Configurações → Login intranet** (use **Testar**). A partir daí, alterações feitas no
+`.env` ou nos secrets do Mailgrid/OIDC não têm efeito.
+
+### Antes do deploy
+
+- Garanta ao menos um administrador local (`npm run user:admin -- create`) antes de
+  depender da tela de Configurações.
+- Faça e guarde um backup do banco (veja "Backup sob demanda"). A migration que renomeia
+  `local_users` é destrutiva e seu rollback não é automático; a recuperação é pelo backup.
+- Não faça rolling deploy com versões antiga e nova ao mesmo tempo após o rename de
+  `local_users`. Registre uma janela de manutenção: pare o backend e os workers antigos,
+  execute a migration e só então inicie a nova versão.
+
+### Perfis
+
+- Usuários da intranet entram como **Operador** no primeiro acesso; promova-os em
+  **Configurações → Usuários**.
+- Sessões abertas antes do deploy continuam válidas enquanto a configuração importada
+  permanecer compatível; sua identidade é vinculada ao issuer original e os usuários
+  aparecem como Operador. Mudanças incompatíveis na configuração OIDC (por exemplo, de
+  issuer) exigem novo login e não transferem o perfil entre issuers.
+
+### Verificação pós-deploy
+
+1. Importação confirmada pela linha `[Settings] import_environment` (acima); em
+   **Configurações → E-mail** e **Configurações → Login intranet**, use **Testar**.
+2. Uma sessão OIDC aberta antes do deploy continua funcionando enquanto a configuração
+   permanecer inalterada (o usuário aparece como Operador).
+3. `npm run user:admin` recusa desativar ou rebaixar o último administrador ativo.
+4. Depois que um administrador redefine a senha de um usuário local, a sessão antiga
+   desse usuário é rejeitada e ele precisa trocar a senha ao entrar.
+5. Alterar o issuer exige novo login, e o perfil não é transferido para a nova identidade.
+6. A importação não gravou segredos vazios: os secret files estavam legíveis (confira
+   pelo teste **Testar**, sem imprimir os valores).
+7. Entre pela intranet numa janela anônima (Operador, sem o link Configurações), promova
+   pelo admin e recarregue; crie um usuário local de teste, confirme a troca obrigatória
+   de senha e desative-o.
+8. Em **Configurações → E-mail**, confirme que o campo do token do webhook mostra
+   "Token configurado" (e que o log não mostra `[Settings] mailgrid webhook token not configured`).
+   Caso contrário, informe novamente o token do webhook e salve antes de depender do
+   rastreamento de entrega.
+
+### Falha ao ler secret file
+
+Se a importação ou o carregamento falhar por causa de um secret file ausente ou ilegível,
+a importação é atômica: nada é gravado e o start falha com
+`Database configuration initialization failed`. Corrija o secret (sem imprimir seu valor),
+reinicie o serviço e confira novamente a linha `[Settings] import_environment` e as telas de Configurações. A importação
+só preenche seções ausentes e nunca sobrescreve valores já existentes no banco.
+
+### Retirada das variáveis antigas (follow-up)
+
+Depois de validar a importação em produção, uma story seguinte remove de
+`docker-compose.prod.yml`, `deploy/production.env`, `scripts/production/bootstrap.sh` e
+`scripts/production/deploy.sh` as variáveis `MAILGRID_*`, `OIDC_ISSUER`,
+`OIDC_CLIENT_ID`, `OIDC_BACKCHANNEL_ORIGIN` e os secrets `bulkmail_mailgrid_password`,
+`bulkmail_mailgrid_webhook_token` e `bulkmail_oidc_client_secret`. Não remova
+`bulkmail_config_encryption_key` nem `bulkmail_oidc_session_encryption_key`.
+
+## Usuários locais (login por senha)
+
+Administradores também criam usuários, definem senhas, alteram perfis e desativam
+contas em **Configurações → Usuários**. Os comandos abaixo continuam disponíveis como
+acesso de emergência e sempre criam administradores.
+
+O login por usuário e senha convive com o login da intranet. Os comandos rodam
+dentro de um container do backend, **no nó onde a task está em execução**:
+
+```bash
+docker service ps bulkmail_backend --filter desired-state=running --format '{{.Node}}'
+# no nó indicado:
+backend_container=$(docker ps --filter name=bulkmail_backend -q | head -1)
+```
+
+Criar o admin inicial (a senha é pedida duas vezes, sem eco; mínimo 12 caracteres):
+
+```bash
+docker exec -it "$backend_container" npm run user:admin -- create --username=admin
+```
+
+Trocar a senha (encerra as sessões abertas desse usuário):
+
+```bash
+docker exec -it "$backend_container" npm run user:admin -- reset-password --username=admin
+```
+
+Desativar ou reativar:
+
+```bash
+docker exec -it "$backend_container" npm run user:admin -- disable --username=admin
+docker exec -it "$backend_container" npm run user:admin -- enable --username=admin
+```
+
+Para desligar totalmente o login por senha, defina `LOCAL_LOGIN_ENABLED=false`
+em `deploy/production.env` e execute `./scripts/production/deploy.sh`.
+
+Tentativas de login local aparecem nos logs com o prefixo `[LocalAuth]`:
+
+```bash
+docker service logs --since 1h bulkmail_backend | grep '\[LocalAuth\]'
+```
+
+### IP real do cliente
+
+O bloqueio de tentativas usa o IP do cliente. A cadeia de produção é
+Traefik → Nginx → backend, e cada salto acrescenta um IP ao `X-Forwarded-For`;
+por isso o valor esperado é `TRUST_PROXY_HOPS=2` (Traefik + Nginx), que já é o
+padrão de `deploy/production.env.example` e do `docker-compose.prod.yml`. Com
+apenas 1 salto, o backend enxergaria sempre o IP do Traefik e o bloqueio por IP
+viraria um bloqueio global.
+
+Depois do primeiro deploy, faça uma tentativa com senha errada a partir de uma
+máquina conhecida e confirme que o campo `ip` do log `[LocalAuth]` é o IP real
+do cliente.
+
+Pré-condição: o Traefik **não** pode confiar em `X-Forwarded-For` enviado pelo
+cliente (sem `forwardedHeaders.insecure` e sem `trustedIPs` amplos no
+entrypoint). Caso contrário, qualquer cliente poderia forjar o próprio IP e
+contornar o bloqueio.
+
+Se o IP registrado continuar sendo interno do Docker (por exemplo `10.0.x.x`) e
+igual para todos, o Traefik está recebendo o tráfego pela rede ingress do Swarm,
+que oculta o IP de origem; publique as portas do Traefik em `mode: host` antes
+de confiar no bloqueio por IP.
+
 ## Backup sob demanda
 
 ```bash

@@ -2,17 +2,25 @@ import { createCipheriv, createDecipheriv, randomBytes } from 'crypto';
 
 const PREFIX = 'enc:v1';
 
+/** Configuration failures whose messages are fixed text, safe to log (never values, paths or file contents). */
+export class ConfigurationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ConfigurationError';
+  }
+}
+
 const getKey = (): Buffer | null => {
   const raw = process.env.CONFIG_ENCRYPTION_KEY;
   if (!raw) {
     if (process.env.NODE_ENV === 'production') {
-      throw new Error('CONFIG_ENCRYPTION_KEY is required in production');
+      throw new ConfigurationError('CONFIG_ENCRYPTION_KEY is required in production');
     }
     return null;
   }
 
   const key = /^[a-f0-9]{64}$/i.test(raw) ? Buffer.from(raw, 'hex') : Buffer.from(raw, 'base64');
-  if (key.length !== 32) throw new Error('CONFIG_ENCRYPTION_KEY must contain exactly 32 bytes');
+  if (key.length !== 32) throw new ConfigurationError('CONFIG_ENCRYPTION_KEY must contain exactly 32 bytes');
   return key;
 };
 
@@ -34,7 +42,7 @@ export const decryptSecret = (value: string): string => {
   if (!key) return value;
 
   const parts = value.split(':');
-  if (parts.length !== 5) throw new Error('Encrypted configuration has an invalid format');
+  if (parts.length !== 5) throw new ConfigurationError('Encrypted configuration has an invalid format');
   const [, , ivValue, tagValue, encryptedValue] = parts;
   const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(ivValue, 'base64'));
   decipher.setAuthTag(Buffer.from(tagValue, 'base64'));

@@ -19,7 +19,20 @@ export interface MailgridConfig {
 /**
  * Configuration value type
  */
-export type ConfigValue = MailgridConfig | Record<string, unknown>;
+export interface OidcSettings {
+  enabled: boolean;
+  issuer: string;
+  clientId: string;
+  clientSecret: string;
+  backchannelOrigin: string;
+}
+
+export interface LegacyOidcBinding {
+  issuer: string;
+  configurationFingerprint: string;
+}
+
+export type ConfigValue = MailgridConfig | OidcSettings | LegacyOidcBinding | Record<string, unknown>;
 
 /**
  * SystemConfig entity interface

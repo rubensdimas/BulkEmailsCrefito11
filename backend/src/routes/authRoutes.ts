@@ -1,14 +1,19 @@
 import { Router, Request, Response } from 'express';
 import { timingSafeEqual } from 'crypto';
 import {
+  createLocalSession,
   createSession,
   consumeLoginTransaction,
   deleteSession,
   getRefreshTokenForSession,
   getSession,
+  isLocalSession,
   saveLoginTransaction,
 } from '../services/authSessionService';
 import {
+  assertOidcBinding,
+  loadOidcOperationContext,
+  isOidcEnabled,
   createAuthorizationRequest,
   exchangeAuthorizationCode,
   getLogoutUrl,
@@ -25,11 +30,22 @@ import {
   requireAuthentication,
   requireTrustedOrigin,
   SESSION_COOKIE,
+  SESSION_COOKIE_MAX_AGE,
 } from '../middlewares/authentication';
+import { createLocalAuthController } from '../controllers/localAuthController';
+import { isLocalLoginEnabled } from '../config/localAuth';
+import { getUserRepository } from '../services/databaseService';
+import { createLocalAuthService } from '../services/localAuthService';
+import { clearFailedLogins, isLoginBlocked, registerFailedLogin } from '../services/loginAttemptLimiter';
+import { verifyAgainstDummy, verifyPassword } from '../services/passwordHasher';
+import { toAccountView } from '../services/accountService';
+import { UserAdminError } from '../services/userAdminService';
+import { sanitizeReturnTo } from '../utils/returnTo';
+
+import { handleUserAdmin, userAdminService } from './userAdminRoutes';
 
 const router = Router();
 const LOGIN_COOKIE_MAX_AGE = 5 * 60 * 1000;
-const SESSION_COOKIE_MAX_AGE = 8 * 60 * 60 * 1000;
 
 const matches = (left: string, right: string): boolean => {
   const a = Buffer.from(left);
@@ -39,17 +55,38 @@ const matches = (left: string, right: string): boolean => {
 
 const appOrigin = (): string => (process.env.APP_ORIGIN || '').replace(/\/$/, '');
 
-router.get('/oidc/login', async (_request: Request, response: Response, next) => {
+const localAuth = createLocalAuthController({
+  enabled: isLocalLoginEnabled,
+  oidcEnabled: isOidcEnabled,
+  // Built per request: the repository only exists after the database is initialized.
+  authenticate: (input) => createLocalAuthService({
+    users: getUserRepository(),
+    attempts: { isBlocked: isLoginBlocked, registerFailure: registerFailedLogin, clear: clearFailedLogins },
+    passwords: { verify: verifyPassword, verifyDummy: verifyAgainstDummy },
+  }).authenticate(input),
+  createSession: createLocalSession,
+  deleteSession,
+});
+
+router.get('/options', localAuth.options);
+router.post('/local/login', requireTrustedOrigin, localAuth.login);
+
+router.get('/oidc/login', async (request: Request, response: Response, next) => {
   try {
-    const authorization = await createAuthorizationRequest();
+    const context = await loadOidcOperationContext();
+    const authorization = await createAuthorizationRequest(context, sanitizeReturnTo(request.query.next));
     const transactionId = await saveLoginTransaction({
+      issuer: authorization.issuer,
+      configurationFingerprint: authorization.configurationFingerprint,
       state: authorization.state,
       nonce: authorization.nonce,
       codeVerifier: authorization.codeVerifier,
+      returnTo: sanitizeReturnTo(request.query.next),
     });
     response.cookie(LOGIN_COOKIE, transactionId, cookieOptions(LOGIN_COOKIE_MAX_AGE));
     response.redirect(302, authorization.authorizationUrl);
   } catch (error) {
+    if (error instanceof OidcError && ['not_configured', 'configuration_error'].includes(error.code)) { response.redirect(302, `${appOrigin()}/login?auth_error=not_configured`); return; }
     next(error);
   }
 });
@@ -57,7 +94,7 @@ router.get('/oidc/login', async (_request: Request, response: Response, next) =>
 router.get('/oidc/callback', async (request: Request, response: Response) => {
   const fail = (reason: string): void => {
     response.clearCookie(LOGIN_COOKIE, cookieOptions());
-    response.redirect(302, `${appOrigin()}/?auth_error=${encodeURIComponent(reason)}`);
+    response.redirect(302, `${appOrigin()}/login?auth_error=${encodeURIComponent(reason)}`);
   };
 
   try {
@@ -75,20 +112,26 @@ router.get('/oidc/callback', async (request: Request, response: Response) => {
       return;
     }
 
-    const tokens = await exchangeAuthorizationCode(code, transaction.codeVerifier);
+    const context = await loadOidcOperationContext();
+    await assertOidcBinding(context, transaction);
+    const tokens = await exchangeAuthorizationCode(context, code, transaction.codeVerifier);
     if (!tokens.refresh_token) {
       fail('missing_refresh_token');
       return;
     }
-    const claims = await validateIdToken(tokens.id_token, transaction.nonce);
-    const user = await getUserInfo(tokens.access_token);
+    const claims = await validateIdToken(context, tokens.id_token, transaction.nonce);
+    const user = await getUserInfo(context, tokens.access_token);
     if (claims.sub !== user.sub) {
       fail('invalid_identity');
       return;
     }
-    const sessionId = await createSession(user, tokens.refresh_token, tokens.expires_in);
+    const users = getUserRepository();
+    const account = await users.upsertOidcUser({ issuer: context.configuration.issuer, sub: user.sub, name: user.name, email: user.email });
+    if (account.disabledAt) { fail('unauthorized'); return; }
+    await users.recordLogin(account.id);
+    const sessionId = await createSession(context, user, tokens.refresh_token, tokens.expires_in);
     response.cookie(SESSION_COOKIE, sessionId, cookieOptions(SESSION_COOKIE_MAX_AGE));
-    response.redirect(302, `${appOrigin()}/`);
+    response.redirect(302, `${appOrigin()}${sanitizeReturnTo(transaction.returnTo)}`);
   } catch (error) {
     if (error instanceof OidcError) {
       console.error('[OIDC] Callback failed:', {
@@ -100,22 +143,51 @@ router.get('/oidc/callback', async (request: Request, response: Response) => {
     } else {
       console.error('[OIDC] Callback failed:', error instanceof Error ? error.message : error);
     }
-    fail('authentication_failed');
+    fail(error instanceof OidcError && ['not_configured', 'configuration_error'].includes(error.code) ? 'not_configured' : 'authentication_failed');
   }
 });
 
 router.get('/me', requireAuthentication, (request: AuthenticatedRequest, response: Response) => {
-  response.status(200).json({ success: true, data: request.auth?.session.user });
+  const auth = request.auth;
+  response.status(200).json({
+    success: true,
+    data: auth ? toAccountView(auth.session, auth.account) : undefined,
+  });
 });
+
+router.post('/password', requireAuthentication, requireTrustedOrigin, handleUserAdmin(async (request, response) => {
+  // Current-password guesses share the login limiter, keyed by account id (not username) plus IP.
+  const attemptKey = `password-change:${request.auth!.account.id}`;
+  const ip = request.ip ?? 'unknown';
+  if (await isLoginBlocked(attemptKey, ip)) {
+    response.status(429).json({ success: false, error: 'too_many_attempts', message: 'Muitas tentativas. Aguarde alguns minutos e tente novamente.' });
+    return;
+  }
+  try {
+    await userAdminService().changeOwnPassword(request.auth!.account, request.body?.currentPassword, request.body?.newPassword);
+  } catch (error) {
+    if (error instanceof UserAdminError && error.code === 'invalid_current_password') await registerFailedLogin(attemptKey, ip);
+    throw error;
+  }
+  await clearFailedLogins(attemptKey, ip);
+  response.json({ success: true });
+}));
 
 router.post('/logout', requireAuthentication, requireTrustedOrigin, async (request: AuthenticatedRequest, response: Response, next) => {
   try {
     const session = await getSession(request.auth?.sessionId);
     await deleteSession(request.auth?.sessionId);
     response.clearCookie(SESSION_COOKIE, cookieOptions());
-    if (session) await revokeRefreshToken(getRefreshTokenForSession(session));
-    response.status(200).json({ success: true, logoutUrl: await getLogoutUrl() });
+    if (!session || isLocalSession(session)) {
+      response.status(200).json({ success: true, logoutUrl: null });
+      return;
+    }
+    const context = await loadOidcOperationContext();
+    await assertOidcBinding(context, session);
+    await revokeRefreshToken(context, getRefreshTokenForSession(session));
+    response.status(200).json({ success: true, logoutUrl: await getLogoutUrl(context) });
   } catch (error) {
+    if (error instanceof OidcError && ['not_configured', 'configuration_error'].includes(error.code)) { response.status(200).json({ success: true, logoutUrl: `${appOrigin()}/login?auth_error=not_configured` }); return; }
     next(error);
   }
 });

@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { useState } from 'react';
 import { useAuth } from './AuthProvider';
 
@@ -18,6 +19,7 @@ export function AccountMenu() {
   return (
     <div className="flex items-center gap-3">
       <span className="hidden sm:block text-sm text-gray-600" title={user.email}>{user.name || user.email || user.sub}</span>
+      {user.provider === 'local' && <Link to="/account/password" className="text-sm text-primary-700">Minha senha</Link>}
       <button
         type="button"
         onClick={() => void handleLogout()}

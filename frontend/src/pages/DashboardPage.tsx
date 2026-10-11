@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { getJobs, deleteJob, Job, PaginatedResponse } from '../services/api';
-import { AccountMenu } from '../components/Auth/AccountMenu';
+import { AppHeader } from '../components/Layout/AppHeader';
 
 export function DashboardPage() {
   const [data, setData] = useState<PaginatedResponse<Job> | null>(null);
@@ -81,27 +81,10 @@ export function DashboardPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <header className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Dashboard de Envios</h1>
-              <p className="text-gray-600 mt-1 text-sm">Gerencie o histórico de suas campanhas</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <AccountMenu />
-            <Link
-              to="/"
-              className="inline-flex items-center px-4 py-2 bg-primary-600 border border-transparent rounded-md shadow-sm text-sm font-medium text-white hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 transition-colors"
-            >
-              Novo Envio
-            </Link>
-          </div>
-        </div>
-      </header>
+      <AppHeader />
+      <div className="max-w-7xl mx-auto px-4 pt-6"><h1 className="text-2xl font-bold text-gray-900">Dashboard de Envios</h1></div>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-8 pt-6">
         {/* Filters */}
         <div className="mb-6 flex gap-4 items-center">
           <label htmlFor="status-filter" className="text-sm font-medium text-gray-700">Filtrar por Status:</label>

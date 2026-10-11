@@ -1,8 +1,6 @@
 import { useState, useEffect, type ChangeEvent, type FormEvent } from 'react';
 import axios from 'axios';
-import { Link } from 'react-router-dom';
-import { getMailgridConfig, updateMailgridConfig, testMailgridConfig, MailgridConfig } from '../services/api';
-import { AccountMenu } from '../components/Auth/AccountMenu';
+import { getMailgridConfig, updateMailgridConfig, testMailgridConfig, MailgridConfig } from '../../services/api';
 
 interface ApiErrorResponse {
   error?: string;
@@ -28,7 +26,7 @@ const getErrorMessage = (error: unknown, fields: Array<keyof ApiErrorResponse> =
   return 'Erro desconhecido';
 };
 
-export function SettingsPage() {
+export default function SettingsEmailPage() {
   const [config, setConfig] = useState<MailgridConfig>({
     host: '',
     user: '',
@@ -127,39 +125,16 @@ export function SettingsPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="flex justify-center py-12">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white shadow-sm">
-        <div className="max-w-4xl mx-auto px-4 py-6 flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Configurações</h1>
-            <p className="text-gray-600 mt-1">Gerencie as credenciais da API Mailgrid</p>
-          </div>
-          <div className="flex gap-3">
-            <AccountMenu />
-            <Link
-              to="/dashboard"
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
-            >
-              Dashboard
-            </Link>
-            <Link
-              to="/"
-              className="px-4 py-2 text-sm font-medium text-white bg-primary-600 rounded-lg hover:bg-primary-700 shadow-sm transition-colors"
-            >
-              Novo Envio
-            </Link>
-          </div>
-        </div>
-      </header>
-
-      <main className="max-w-4xl mx-auto px-4 py-8">
+    <div>
+      <h2 className="text-lg font-semibold text-gray-900">E-mail (Mailgrid)</h2>
+      <p className="text-sm text-gray-600 mt-1 mb-6">Credenciais da API Mailgrid usadas nos envios.</p>
         {message && (
           <div className={`mb-6 p-4 rounded-lg border ${message.type === 'success' ? 'bg-green-50 border-green-200 text-green-700' : 'bg-red-50 border-red-200 text-red-700'}`}>
             <div className="flex items-center gap-3">
@@ -344,9 +319,6 @@ export function SettingsPage() {
             </section>
           </div>
         </div>
-      </main>
     </div>
   );
 }
-
-export default SettingsPage;

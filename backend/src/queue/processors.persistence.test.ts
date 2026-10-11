@@ -1,5 +1,5 @@
 import { processEmailJob } from "./processors";
-import { getEmailLogRepository, getJobRepository, isDatabaseReady } from "../services/databaseService";
+import { getEmailLogRepository, getJobRepository, getConfigService } from "../services/databaseService";
 import { sendViaMailgrid } from "../services/mailgridService";
 
 jest.mock("../services/databaseService", () => ({
@@ -8,7 +8,7 @@ jest.mock("../services/databaseService", () => ({
   getConfigService: jest.fn(),
   isDatabaseReady: jest.fn(),
 }));
-jest.mock("../services/mailgridService", () => ({ sendViaMailgrid: jest.fn() }));
+jest.mock("../services/mailgridService", () => ({ ...jest.requireActual("../services/mailgridService"), sendViaMailgrid: jest.fn() }));
 
 describe("processEmailJob persistence", () => {
   it("stores the Mailgrid message id when the individual send succeeds", async () => {
@@ -21,7 +21,9 @@ describe("processEmailJob persistence", () => {
     };
     (getEmailLogRepository as jest.Mock).mockReturnValue(emailLogRepo);
     (getJobRepository as jest.Mock).mockReturnValue({ findAll: jest.fn().mockResolvedValue([]) });
-    (isDatabaseReady as jest.Mock).mockReturnValue(false);
+    (getConfigService as jest.Mock).mockReturnValue({ getMailgridConfig: jest.fn().mockResolvedValue({
+      host: 'smtp.database.invalid', user: 'db-user', pass: 'db-secret', from_address: 'database@test.invalid',
+    }) });
     (sendViaMailgrid as jest.Mock).mockResolvedValue({ messageId: "1q2w3e4r5t-ABC" });
 
     await processEmailJob({

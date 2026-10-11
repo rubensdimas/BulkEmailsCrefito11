@@ -5,9 +5,17 @@ import rateLimit from 'express-rate-limit';
 
 const isProduction = process.env.NODE_ENV === 'production';
 
+// Production chain is Traefik -> Nginx -> backend; each hop appends to X-Forwarded-For.
+export const trustProxyHops = (): number => {
+  const raw = process.env.TRUST_PROXY_HOPS?.trim();
+  if (raw === undefined || !/^\d+$/.test(raw)) return 1;
+  const hops = Number(raw);
+  return Number.isSafeInteger(hops) ? hops : 1;
+};
+
 export const configureSecurity = (app: Express): void => {
   app.disable('x-powered-by');
-  if (isProduction) app.set('trust proxy', 1);
+  if (isProduction) app.set('trust proxy', trustProxyHops());
 
   app.use(helmet({
     crossOriginResourcePolicy: { policy: 'same-origin' },

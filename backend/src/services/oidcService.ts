@@ -7,8 +7,10 @@ import {
   timingSafeEqual,
   verify,
 } from 'crypto';
-import { readFileSync } from 'fs';
-import { isAbsolute, resolve } from 'path';
+import { getSessionEncryptionKey, oidcConfigurationFingerprint, OidcError } from './oidcConfiguration';
+export { getSessionEncryptionKey, OidcError } from './oidcConfiguration';
+import type { OidcSettings } from '../models/SystemConfig';
+import { getConfigService } from './databaseService';
 
 export interface OidcMetadata {
   issuer: string;
@@ -56,7 +58,7 @@ interface JwksResponse {
   keys: Jwk[];
 }
 
-interface OidcConfiguration {
+export interface OidcConfiguration {
   issuer: string;
   backchannelOrigin?: string;
   clientId: string;
@@ -69,17 +71,6 @@ const DISCOVERY_TTL_MS = 5 * 60 * 1000;
 const TOKEN_REFRESH_SKEW_MS = 60 * 1000;
 let metadataCache: { value: OidcMetadata; expiresAt: number; cacheKey: string } | null = null;
 
-export class OidcError extends Error {
-  constructor(
-    message: string,
-    public readonly code: string = 'oidc_error',
-    public readonly providerStatus?: number,
-    public readonly providerError?: string,
-  ) {
-    super(message);
-  }
-}
-
 const base64Url = (value: Buffer): string => value.toString('base64url');
 
 const decodeBase64UrlJson = <T>(value: string): T => {
@@ -90,75 +81,73 @@ const decodeBase64UrlJson = <T>(value: string): T => {
   }
 };
 
-const getSecret = (name: string): string => {
-  const value = process.env[name];
-  if (value) return value.trim();
-
-  const path = process.env[`${name}_FILE`];
-  if (path) {
-    try {
-      let secret: string;
-      try {
-        secret = readFileSync(path, 'utf8').trim();
-      } catch (error) {
-        if (isAbsolute(path)) throw error;
-        secret = readFileSync(resolve(__dirname, '../../../', path), 'utf8').trim();
-      }
-      if (secret) return secret;
-    } catch {
-      throw new OidcError(`${name}_FILE is not readable`, 'configuration_error');
-    }
-  }
-
-  throw new OidcError(`${name} is required`, 'configuration_error');
+export type OidcOperationContext = Readonly<{
+  configuration: Readonly<OidcConfiguration>;
+  configurationFingerprint: string;
+}>;
+export type OidcSettingsSource = () => Promise<OidcSettings | null>;
+let settingsSource: OidcSettingsSource = () => getConfigService().getOidcSettings();
+export const setOidcSettingsSource = (source: OidcSettingsSource): void => {
+  settingsSource = source;
+  metadataCache = null;
 };
-
-const getConfiguration = (): OidcConfiguration => {
-  const issuer = (process.env.OIDC_ISSUER || '').replace(/\/$/, '');
-  const backchannelOrigin = (process.env.OIDC_BACKCHANNEL_ORIGIN || '').replace(/\/$/, '');
-  const clientId = process.env.OIDC_CLIENT_ID || '';
-  const appOrigin = (process.env.APP_ORIGIN || '').replace(/\/$/, '');
-
-  if (!issuer || !clientId || !appOrigin) {
-    throw new OidcError('OIDC_ISSUER, OIDC_CLIENT_ID and APP_ORIGIN are required', 'configuration_error');
-  }
-
-  let issuerUrl: URL;
-  let originUrl: URL;
-  let backchannelUrl: URL | undefined;
+const configurationError = (message: string): never => { throw new OidcError(message, 'configuration_error'); };
+const parseUrl = (value: string): URL => {
   try {
-    issuerUrl = new URL(issuer);
-    originUrl = new URL(appOrigin);
-    backchannelUrl = backchannelOrigin ? new URL(backchannelOrigin) : undefined;
+    return new URL(value);
   } catch {
-    throw new OidcError('OIDC_ISSUER and APP_ORIGIN must be valid URLs', 'configuration_error');
+    return configurationError('Issuer, backchannel origin e APP_ORIGIN precisam ser URLs válidas.');
   }
-
-  const localIssuer = issuerUrl.protocol === 'http:' && ['localhost', '127.0.0.1', '::1'].includes(issuerUrl.hostname);
-  if (process.env.NODE_ENV === 'production' && issuerUrl.protocol !== 'https:') {
-    throw new OidcError('OIDC_ISSUER must use HTTPS in production', 'configuration_error');
+};
+const localHttp = (url: URL): boolean => url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
+export const validateStoredOidcSettings = (settings: OidcSettings): void => {
+  if (settings.issuer) {
+    const issuer = parseUrl(settings.issuer);
+    if (issuer.protocol !== 'https:' && (process.env.NODE_ENV === 'production' || !localHttp(issuer))) configurationError('O issuer precisa usar HTTPS fora do ambiente local.');
   }
-  if (process.env.NODE_ENV === 'production' && originUrl.protocol !== 'https:') {
-    throw new OidcError('APP_ORIGIN must use HTTPS in production', 'configuration_error');
+  if (settings.backchannelOrigin) {
+    const backchannel = parseUrl(settings.backchannelOrigin);
+    if (process.env.NODE_ENV === 'production') configurationError('Backchannel origin só é permitido fora de produção.');
+    if (!['http:', 'https:'].includes(backchannel.protocol)) configurationError('Backchannel origin precisa usar HTTP ou HTTPS.');
   }
-  if (issuerUrl.protocol !== 'https:' && !localIssuer) {
-    throw new OidcError('OIDC_ISSUER must use HTTPS outside local development', 'configuration_error');
-  }
-  if (backchannelUrl && process.env.NODE_ENV === 'production') {
-    throw new OidcError('OIDC_BACKCHANNEL_ORIGIN is only supported outside production', 'configuration_error');
-  }
-  if (backchannelUrl && !['http:', 'https:'].includes(backchannelUrl.protocol)) {
-    throw new OidcError('OIDC_BACKCHANNEL_ORIGIN must use HTTP or HTTPS', 'configuration_error');
-  }
-
+  if (settings.enabled && (!settings.issuer || !settings.clientId || !settings.clientSecret)) configurationError('Informe issuer, client ID e client secret.');
+};
+export const validateOidcSettings = (settings: OidcSettings, appOrigin = process.env.APP_ORIGIN || ''): OidcConfiguration => {
+  validateStoredOidcSettings(settings);
+  if (!settings.issuer || !settings.clientId || !settings.clientSecret) configurationError('Informe issuer, client ID e client secret.');
+  const origin = parseUrl(appOrigin);
+  if (process.env.NODE_ENV === 'production' && origin.protocol !== 'https:') configurationError('APP_ORIGIN precisa usar HTTPS em produção.');
+  if (origin.protocol !== 'https:' && !localHttp(origin)) configurationError('APP_ORIGIN precisa usar HTTPS fora do ambiente local.');
   return {
-    issuer,
-    ...(backchannelOrigin ? { backchannelOrigin } : {}),
-    clientId,
-    clientSecret: getSecret('OIDC_CLIENT_SECRET'),
-    redirectUri: `${originUrl.origin}/api/auth/oidc/callback`,
-    appOrigin: originUrl.origin,
+    issuer: settings.issuer.replace(/\/$/, ''),
+    clientId: settings.clientId,
+    clientSecret: settings.clientSecret,
+    ...(settings.backchannelOrigin ? { backchannelOrigin: settings.backchannelOrigin.replace(/\/$/, '') } : {}),
+    appOrigin: origin.origin,
+    redirectUri: `${origin.origin}/api/auth/oidc/callback`,
   };
+};
+export const loadOidcOperationContext = async (): Promise<OidcOperationContext> => {
+  const settings = await settingsSource();
+  if (!settings || !settings.enabled) throw new OidcError('Login da intranet não configurado.', 'not_configured');
+  const configuration = Object.freeze(validateOidcSettings(settings));
+  return Object.freeze({ configuration, configurationFingerprint: oidcConfigurationFingerprint(settings, getSessionEncryptionKey()) });
+};
+export const isOidcEnabled = async (): Promise<boolean> => {
+  try {
+    await loadOidcOperationContext();
+    return true;
+  } catch (error) {
+    if (error instanceof OidcError && ['configuration_error', 'not_configured'].includes(error.code)) return false;
+    throw error;
+  }
+};
+export const assertOidcBinding = async (context: OidcOperationContext, binding: { issuer?: string; configurationFingerprint?: string }): Promise<void> => {
+  // Only wholly unbound sessions/transactions can inherit the immutable bootstrap binding.
+  const effective = binding.issuer === undefined && binding.configurationFingerprint === undefined
+    ? await getConfigService().getLegacyOidcBinding()
+    : binding;
+  if (!effective || effective.issuer !== context.configuration.issuer || effective.configurationFingerprint !== context.configurationFingerprint) throw new OidcError('Configuração da intranet alterada. Entre novamente.', 'not_configured');
 };
 
 const oidcUrl = (url: string, config: OidcConfiguration, useBackchannel: boolean): string => {
@@ -171,10 +160,7 @@ const oidcUrl = (url: string, config: OidcConfiguration, useBackchannel: boolean
   return backchannelUrl.toString();
 };
 
-export const assertOidcConfiguration = (): void => {
-  getConfiguration();
-  getSessionEncryptionKey();
-};
+export const assertSessionEncryptionKey = (): void => { getSessionEncryptionKey(); };
 
 const fetchJson = async <T>(url: string, options?: RequestInit): Promise<T> => {
   let response: Response;
@@ -199,13 +185,7 @@ const equals = (left: string, right: string): boolean => {
   return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
 };
 
-export const getOidcMetadata = async (): Promise<OidcMetadata> => {
-  const config = getConfiguration();
-  const cacheKey = `${config.issuer}|${config.backchannelOrigin || ''}`;
-  if (metadataCache && metadataCache.expiresAt > Date.now() && metadataCache.cacheKey === cacheKey) {
-    return metadataCache.value;
-  }
-
+const discoverOidcMetadata = async (config: Readonly<OidcConfiguration>): Promise<OidcMetadata> => {
   const metadata = await fetchJson<OidcMetadata>(oidcUrl(`${config.issuer}/.well-known/openid-configuration`, config, true));
   if (
     metadata.issuer !== config.issuer ||
@@ -216,21 +196,35 @@ export const getOidcMetadata = async (): Promise<OidcMetadata> => {
     !metadata.id_token_signing_alg_values_supported?.includes('RS256') ||
     !metadata.code_challenge_methods_supported?.includes('S256')
   ) {
-    throw new OidcError('Identity provider metadata is incompatible', 'configuration_error');
+    throw new OidcError('O discovery do issuer não é compatível (requer RS256 e PKCE S256).', 'configuration_error');
   }
 
+  return metadata;
+};
+
+export const getOidcMetadata = async (context: OidcOperationContext): Promise<OidcMetadata> => {
+  const config = context.configuration;
+  const cacheKey = `${config.issuer}|${config.backchannelOrigin || ''}`;
+  if (metadataCache && metadataCache.expiresAt > Date.now() && metadataCache.cacheKey === cacheKey) {
+    return metadataCache.value;
+  }
+
+  const metadata = await discoverOidcMetadata(config);
   metadataCache = { value: metadata, expiresAt: Date.now() + DISCOVERY_TTL_MS, cacheKey };
   return metadata;
 };
 
-export const createAuthorizationRequest = async (): Promise<{
+export const createAuthorizationRequest = async (context: OidcOperationContext, returnTo?: string): Promise<{
+  issuer: string;
+  configurationFingerprint: string;
+  returnTo?: string;
   authorizationUrl: string;
   state: string;
   nonce: string;
   codeVerifier: string;
 }> => {
-  const config = getConfiguration();
-  const metadata = await getOidcMetadata();
+  const config = context.configuration;
+  const metadata = await getOidcMetadata(context);
   const state = base64Url(randomBytes(32));
   const nonce = base64Url(randomBytes(32));
   const codeVerifier = base64Url(randomBytes(64));
@@ -248,7 +242,7 @@ export const createAuthorizationRequest = async (): Promise<{
     code_challenge_method: 'S256',
   }).toString();
 
-  return { authorizationUrl: url.toString(), state, nonce, codeVerifier };
+  return { authorizationUrl: url.toString(), state, nonce, codeVerifier, issuer: config.issuer, configurationFingerprint: context.configurationFingerprint, returnTo };
 };
 
 const clientAuthorization = (clientId: string, clientSecret: string): string =>
@@ -265,9 +259,9 @@ const readProviderError = async (response: Response): Promise<string | undefined
   }
 };
 
-const exchange = async (parameters: URLSearchParams): Promise<OidcTokens> => {
-  const config = getConfiguration();
-  const metadata = await getOidcMetadata();
+const exchange = async (context: OidcOperationContext, parameters: URLSearchParams): Promise<OidcTokens> => {
+  const config = context.configuration;
+  const metadata = await getOidcMetadata(context);
   let response: Response;
   try {
     response = await fetch(oidcUrl(metadata.token_endpoint, config, true), {
@@ -298,9 +292,9 @@ const exchange = async (parameters: URLSearchParams): Promise<OidcTokens> => {
   return tokens as OidcTokens;
 };
 
-export const exchangeAuthorizationCode = async (code: string, codeVerifier: string): Promise<OidcTokens> => {
-  const config = getConfiguration();
-  return exchange(new URLSearchParams({
+export const exchangeAuthorizationCode = async (context: OidcOperationContext, code: string, codeVerifier: string): Promise<OidcTokens> => {
+  const config = context.configuration;
+  return exchange(context, new URLSearchParams({
     grant_type: 'authorization_code',
     code,
     redirect_uri: config.redirectUri,
@@ -308,11 +302,11 @@ export const exchangeAuthorizationCode = async (code: string, codeVerifier: stri
   }));
 };
 
-export const refreshOidcTokens = async (refreshToken: string): Promise<OidcTokens> =>
-  exchange(new URLSearchParams({ grant_type: 'refresh_token', refresh_token: refreshToken }));
+export const refreshOidcTokens = async (context: OidcOperationContext, refreshToken: string): Promise<OidcTokens> =>
+  exchange(context, new URLSearchParams({ grant_type: 'refresh_token', refresh_token: refreshToken }));
 
-export const validateIdToken = async (token: string, expectedNonce?: string): Promise<OidcIdentity> => {
-  const config = getConfiguration();
+export const validateIdToken = async (context: OidcOperationContext, token: string, expectedNonce?: string): Promise<OidcIdentity> => {
+  const config = context.configuration;
   const [encodedHeader, encodedPayload, encodedSignature, ...extraParts] = token.split('.');
   if (!encodedHeader || !encodedPayload || !encodedSignature || extraParts.length > 0) {
     throw new OidcError('Invalid ID token', 'invalid_token');
@@ -332,7 +326,7 @@ export const validateIdToken = async (token: string, expectedNonce?: string): Pr
     throw new OidcError('Invalid ID token', 'invalid_token');
   }
 
-  const metadata = await getOidcMetadata();
+  const metadata = await getOidcMetadata(context);
   const jwks = await fetchJson<JwksResponse>(oidcUrl(metadata.jwks_uri, config, true));
   const key = jwks.keys.find((candidate) => candidate.kid === header.kid && candidate.kty === 'RSA' && candidate.use === 'sig' && candidate.alg === 'RS256');
   if (!key) throw new OidcError('Signing key was not found', 'invalid_token');
@@ -349,19 +343,19 @@ export const validateIdToken = async (token: string, expectedNonce?: string): Pr
   return { sub: claims.sub };
 };
 
-export const getUserInfo = async (accessToken: string): Promise<OidcIdentity> => {
-  const metadata = await getOidcMetadata();
-  const identity = await fetchJson<OidcIdentity>(oidcUrl(metadata.userinfo_endpoint, getConfiguration(), true), {
+export const getUserInfo = async (context: OidcOperationContext, accessToken: string): Promise<OidcIdentity> => {
+  const metadata = await getOidcMetadata(context);
+  const identity = await fetchJson<OidcIdentity>(oidcUrl(metadata.userinfo_endpoint, context.configuration, true), {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!identity.sub) throw new OidcError('Identity provider returned invalid user data', 'provider_error');
   return identity;
 };
 
-export const revokeRefreshToken = async (refreshToken: string): Promise<void> => {
-  const metadata = await getOidcMetadata();
+export const revokeRefreshToken = async (context: OidcOperationContext, refreshToken: string): Promise<void> => {
+  const metadata = await getOidcMetadata(context);
   if (!metadata.revocation_endpoint) return;
-  const config = getConfiguration();
+  const config = context.configuration;
   try {
     await fetch(oidcUrl(metadata.revocation_endpoint, config, true), {
       method: 'POST',
@@ -376,14 +370,7 @@ export const revokeRefreshToken = async (refreshToken: string): Promise<void> =>
   }
 };
 
-export const getLogoutUrl = async (): Promise<string | null> => (await getOidcMetadata()).end_session_endpoint || null;
-
-const getSessionEncryptionKey = (): Buffer => {
-  const raw = getSecret('OIDC_SESSION_ENCRYPTION_KEY');
-  const key = /^[a-f0-9]{64}$/i.test(raw) ? Buffer.from(raw, 'hex') : Buffer.from(raw, 'base64');
-  if (key.length !== 32) throw new OidcError('OIDC_SESSION_ENCRYPTION_KEY must contain exactly 32 bytes', 'configuration_error');
-  return key;
-};
+export const getLogoutUrl = async (context: OidcOperationContext): Promise<string | null> => (await getOidcMetadata(context)).end_session_endpoint || null;
 
 export const encryptRefreshToken = (value: string): string => {
   const iv = randomBytes(12);
@@ -408,4 +395,11 @@ export const shouldRefreshToken = (expiresAt: number): boolean => expiresAt - Da
 
 export const clearOidcMetadataCache = (): void => {
   metadataCache = null;
+};
+
+export const probeOidcProvider = async (settings: OidcSettings): Promise<void> => {
+  const context = { configuration: validateOidcSettings(settings), configurationFingerprint: '' };
+  const metadata = await discoverOidcMetadata(context.configuration);
+  const jwks = await fetchJson<JwksResponse>(oidcUrl(metadata.jwks_uri, context.configuration, true));
+  if (!Array.isArray(jwks.keys) || !jwks.keys.some(key => key.kty === 'RSA' && key.use === 'sig' && key.alg === 'RS256')) configurationError('O issuer não possui chave de assinatura RS256.');
 };

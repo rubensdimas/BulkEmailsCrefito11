@@ -1,11 +1,11 @@
 import { useState, useCallback } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import FileUpload from '../components/FileUpload/FileUpload';
 import EmailForm from '../components/EmailForm/EmailForm';
 import { useUpload } from '../hooks/useUpload';
 import { useEmailSubmit } from '../hooks/useEmailSubmit';
 import { mergeUniqueEmails } from '../utils/emailValidator';
-import { AccountMenu } from '../components/Auth/AccountMenu';
+import { AppHeader } from '../components/Layout/AppHeader';
 
 export function HomePage() {
   const navigate = useNavigate();
@@ -69,38 +69,10 @@ export function HomePage() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <header className="bg-white shadow-sm">
-        <div className="max-w-4xl mx-auto px-4 py-6 flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">BulkMail Pro</h1>
-            <p className="text-gray-600 mt-1">Envio de emails em massa via planilha ou lista manual</p>
-          </div>
-          <div className="flex gap-3">
-            <AccountMenu />
-            <Link
-              to="/settings"
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors shadow-sm"
-            >
-              <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-              </svg>
-              Configurações
-            </Link>
-            <Link
-              to="/dashboard"
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors shadow-sm"
-            >
-              <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
-              </svg>
-              Dashboard
-            </Link>
-          </div>
-        </div>
-      </header>
+      <AppHeader />
+      <div className="max-w-4xl mx-auto px-4 pt-6"><h1 className="text-2xl font-bold text-gray-900">BulkMail Pro</h1></div>
 
-      <main className="max-w-4xl mx-auto px-4 py-8">
+      <main className="max-w-4xl mx-auto px-4 pb-8 pt-6">
         {/* Error Alert */}
         {(uploadError || sendError) && (
           <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">

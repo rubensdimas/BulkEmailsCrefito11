@@ -1,6 +1,7 @@
 import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig, AxiosResponse } from 'axios';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
+const authEnabled = import.meta.env.VITE_AUTH_ENABLED === 'true';
 
 // Create axios instance
 const api: AxiosInstance = axios.create({
@@ -32,8 +33,18 @@ api.interceptors.response.use(
   (error: AxiosError) => {
     if (error.response) {
       const status = error.response.status;
-      const data = error.response.data as { message?: string };
+      const data = error.response.data as { message?: string; error?: string };
       console.error(`[API] Error ${status}:`, data.message || error.message);
+
+      const isAuthRequest = error.config?.url?.startsWith('/auth/') ?? false;
+      if (authEnabled && !isAuthRequest) {
+        if (status === 401) {
+          window.dispatchEvent(new CustomEvent('auth-invalid', { detail: data.error }));
+        } else if (status === 403) {
+          window.dispatchEvent(new Event('auth-refresh'));
+        }
+      }
+
     } else if (error.request) {
       console.error('[API] No response received:', error.message);
     } else {
@@ -197,10 +208,23 @@ export interface ConfigResponse<T> {
   error?: string;
 }
 
+export type AuthProviderName = 'oidc' | 'local';
+
+export type UserRole = 'admin' | 'operator';
+
 export interface AuthUser {
+  userId?: string;
+  role?: UserRole;
+  mustChangePassword?: boolean;
   sub: string;
   name?: string;
   email?: string;
+  provider?: AuthProviderName;
+}
+
+export interface AuthOptions {
+  localLoginEnabled: boolean;
+  oidcEnabled: boolean;
 }
 
 // ============= API Functions =============
@@ -298,7 +322,88 @@ export const logout = async (): Promise<{ logoutUrl: string | null }> => {
   return { logoutUrl: response.data.logoutUrl };
 };
 
+export const getAuthOptions = async (): Promise<AuthOptions> => {
+  const response = await api.get<ConfigResponse<AuthOptions>>('/auth/options');
+  return response.data.data;
+};
+
+export const loginWithPassword = async (username: string, password: string): Promise<AuthUser> => {
+  const response = await api.post<ConfigResponse<AuthUser>>('/auth/local/login', { username, password });
+  return response.data.data;
+};
+
 // ============= Export =============
 
 export default api;
 export { api };
+
+export const changeOwnPassword = async (currentPassword: string, newPassword: string): Promise<void> => {
+  await api.post('/auth/password', { currentPassword, newPassword });
+};
+
+export const apiErrorMessage = (error: unknown, fallback: string): string => {
+  if (axios.isAxiosError(error)) {
+    const data = error.response?.data as { message?: string } | undefined;
+    return data?.message || fallback;
+  }
+  return fallback;
+};
+
+export interface ManagedUser {
+  id: string;
+  provider: AuthProviderName;
+  username: string | null;
+  name: string | null;
+  email: string | null;
+  role: UserRole;
+  disabled: boolean;
+  mustChangePassword: boolean;
+  lastLoginAt: string | null;
+}
+
+export const listUsers = async (): Promise<ManagedUser[]> => {
+  const response = await api.get<ConfigResponse<ManagedUser[]>>('/admin/users');
+  return response.data.data;
+};
+
+export const createLocalUser = async (input: { username: string; password: string; role: UserRole }): Promise<ManagedUser> => {
+  const response = await api.post<ConfigResponse<ManagedUser>>('/admin/users', input);
+  return response.data.data;
+};
+
+export const updateUserAccess = async (id: string, change: { role?: UserRole; disabled?: boolean }): Promise<ManagedUser> => {
+  const response = await api.patch<ConfigResponse<ManagedUser>>(`/admin/users/${encodeURIComponent(id)}`, change);
+  return response.data.data;
+};
+
+export const resetUserPassword = async (id: string, password: string): Promise<void> => {
+  await api.post(`/admin/users/${encodeURIComponent(id)}/password`, { password });
+};
+
+export interface OidcConfig {
+  enabled: boolean;
+  issuer: string;
+  clientId: string;
+  clientSecret: string;
+  clientSecretConfigured: boolean;
+  backchannelAllowed: boolean;
+  backchannelOrigin: string;
+  callbackUrl: string;
+}
+
+export type OidcConfigInput = Pick<OidcConfig, 'enabled' | 'issuer' | 'clientId' | 'clientSecret' | 'backchannelOrigin'>;
+
+export const getOidcConfig = async (signal?: AbortSignal): Promise<OidcConfig> => {
+  const response = await api.get<{ success: boolean; data: OidcConfig }>('/config/oidc', { signal });
+  return response.data.data;
+};
+
+export const saveOidcConfig = async (input: OidcConfigInput): Promise<string> => {
+  const response = await api.post<{ success: boolean; message: string }>('/config/oidc', input);
+  return response.data.message;
+};
+
+export const testOidcConfig = async (input: OidcConfigInput): Promise<string> => {
+  const response = await api.post<{ success: boolean; message: string }>('/config/oidc/test', input);
+  return response.data.message;
+};

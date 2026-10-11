@@ -26,6 +26,9 @@ describe('config routes', () => {
       expect.objectContaining({ path: '/smtp', methods: ['post'], handler: configController.updateMailgridConfig }),
       expect.objectContaining({ path: '/mailgrid/test', methods: ['post'], handler: configController.testMailgridConfig }),
       expect.objectContaining({ path: '/smtp/test', methods: ['post'], handler: configController.testMailgridConfig }),
+      expect.objectContaining({ path: '/oidc', methods: ['get'], handler: configController.getOidcConfig }),
+      expect.objectContaining({ path: '/oidc', methods: ['post'], handler: configController.updateOidcConfig }),
+      expect.objectContaining({ path: '/oidc/test', methods: ['post'], handler: configController.testOidcConfig }),
     ]));
   });
 });

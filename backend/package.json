@@ -14,8 +14,10 @@
     "worker": "ts-node src/queue/emailWorker.ts",
     "reconcile:email-jobs": "node dist/scripts/reconcileEmailJobs.js",
     "reconcile:email-jobs:dev": "ts-node src/scripts/reconcileEmailJobs.ts",
+    "user:admin": "node dist/scripts/manageLocalAdmin.js",
+    "user:admin:dev": "ts-node src/scripts/manageLocalAdmin.ts",
     "test": "jest",
-    "test:integration": "RUN_DATABASE_INTEGRATION=true RUN_REDIS_INTEGRATION=true jest src/repositories/emailLogRepository.integration.test.ts src/queue/emailQueue.integration.test.ts --runInBand",
+    "test:integration": "RUN_DATABASE_INTEGRATION=true RUN_REDIS_INTEGRATION=true jest src/repositories/emailLogRepository.integration.test.ts src/repositories/userRepository.integration.test.ts src/repositories/systemConfigRepository.integration.test.ts src/queue/emailQueue.integration.test.ts --runInBand",
     "lint": "eslint . --ext .ts"
   },
   "keywords": [

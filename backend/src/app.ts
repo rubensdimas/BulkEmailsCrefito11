@@ -23,11 +23,13 @@ import {
   uploadLimiter,
   webhookLimiter,
 } from './middlewares/security';
-import { requireAuthentication, requireTrustedOrigin } from './middlewares/authentication';
-import { assertOidcConfiguration } from './services/oidcService';
+import userAdminRoutes from './routes/userAdminRoutes';
+import { requireAdmin, requireAuthentication, requirePasswordCurrent, requireTrustedOrigin } from './middlewares/authentication';
+import { assertSessionEncryptionKey } from './services/oidcService';
 import { getDatabase } from './config/database';
 import { getRedisClient, closeRedisConnection } from './config/redis';
 import { shutdownDatabase } from './services/databaseService';
+import { describeConfigurationFailure, initializeSettingsFromEnvironment } from './services/configService';
 
 // Load environment variables
 import dotenv from 'dotenv';
@@ -84,15 +86,16 @@ const readinessHandler = async (_req: Request, res: Response): Promise<void> => 
 app.get('/api/health/ready', readinessHandler);
 app.get('/api/health', readinessHandler);
 
-// Every remaining API route is an authenticated administrative operation.
-app.use('/api', requireAuthentication, requireTrustedOrigin);
+// Every remaining API route requires authentication and a current password.
+app.use('/api', requireAuthentication, requireTrustedOrigin, requirePasswordCurrent);
 
 // API Routes
 app.use('/api/upload', uploadLimiter, uploadRoutes);
 app.use('/api/send', sendLimiter, sendRoutes);
 app.use('/api/status', statusRoutes);
 app.use('/api/jobs', jobRoutes);
-app.use('/api/config', configLimiter, configRoutes);
+app.use('/api/config', requireAdmin, configLimiter, configRoutes);
+app.use('/api/admin/users', requireAdmin, configLimiter, userAdminRoutes);
 
 // Error handling
 app.use(httpErrorHandler);
@@ -102,14 +105,17 @@ app.use(notFoundHandler);
  * Initialize and start server
  */
 const startServer = async (): Promise<Server> => {
-  assertOidcConfiguration();
+  assertSessionEncryptionKey();
   // Initialize database (if available)
   try {
-    const { initializeDatabase } = await import('./services/databaseService');
+    const { initializeDatabase, getConfigService } = await import('./services/databaseService');
     await initializeDatabase();
+    await initializeSettingsFromEnvironment(getConfigService());
   } catch (error) {
-    if (process.env.NODE_ENV === 'production') throw error;
-    console.warn('⚠️  Database not available in development');
+    // Sanitized detail only: never stack traces, environment values or secret file contents.
+    const reason = describeConfigurationFailure(error);
+    console.error(`Database configuration initialization failed: ${reason}`);
+    throw new Error(`Database configuration initialization failed: ${reason}`);
   }
 
   try {

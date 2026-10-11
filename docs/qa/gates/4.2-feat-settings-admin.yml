@@ -1,0 +1,59 @@
+schema: 1
+story: "4.2"
+story_title: "Configurações administrativas (usuários, e-mail e login intranet)"
+gate: CONCERNS
+status_reason: "Os 24 ACs estão implementados e verificados por testes, e não há issue de severidade alta. Restam pendências não bloqueantes: OIDC real, deploy de produção e CodeRabbit não foram verificados, e há vulnerabilidades de dependências pré-existentes."
+reviewer: "Quinn (Test Architect)"
+updated: "2026-10-10T23:00:00-03:00"
+quality_score: 88
+top_issues:
+  - id: "REQ-001"
+    severity: medium
+    finding: "Provedor OIDC real e deploy de produção não foram verificados; a importação do ambiente e o fluxo de login só foram exercitados com mocks e na stack Docker de dev."
+    suggested_action: "Executar o checklist pós-deploy de docs/production.md (log `[Settings] import_environment`, teste de discovery/JWKS, login real) antes de remover variáveis e secrets no follow-up."
+  - id: "SEC-001"
+    severity: medium
+    finding: "npm audit (backend, produção) reporta 1 crítica (proxy-addr), 1 alta (brace-expansion) e 4 moderadas. A branch não alterou dependências, portanto são pré-existentes."
+    suggested_action: "Abrir story de atualização de dependências (npm audit fix) fora do escopo da 4.2."
+  - id: "TEST-001"
+    severity: low
+    finding: "CodeRabbit não está instalado; sem revisão automatizada complementar. Minors adiados e aceitos nas revisões: sem e2e de 409 credentials_changed no refresh, sem teste do log de importação, resposta de save OIDC desativado vazio descarta segredo guardado, limitador de login compartilhado com troca de senha."
+    suggested_action: "Instalar CodeRabbit no ambiente de QA e tratar os minors em story de manutenção."
+  - id: "REL-001"
+    severity: low
+    finding: "Aviso pré-existente da Story 4.1 (ERR_ERL_UNEXPECTED_X_FORWARDED_FOR) porque o compose de dev não define TRUST_PROXY_HOPS; banco de dev sem configuração Mailgrid exige configurar em Configurações → E-mail."
+    suggested_action: "Definir TRUST_PROXY_HOPS no compose de dev em story futura."
+waiver:
+  active: false
+evidence:
+  tests_reviewed: 418
+  risks_identified: 4
+  trace:
+    ac_covered: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
+    ac_gaps: []
+  commands_rerun_by_qa:
+    - "backend: tsc --noEmit OK; eslint . --ext .ts sem issues; jest 418 passed / 30 skipped"
+    - "backend: test:integration 30/30 (Postgres 18.4 e Redis 7 descartáveis, removidos ao final)"
+    - "frontend: lint e build OK; Playwright auth-chromium + chromium 64/64"
+nfr_validation:
+  security:
+    status: CONCERNS
+    notes: "Autorização por requireAdmin em /api/config e /api/admin, perfil/situação lidos do banco por requisição, segredos criptografados e nunca devolvidos, auditoria sem valores, CAS de senha, limitador. Pendência: vulnerabilidades de dependências pré-existentes."
+  performance:
+    status: PASS
+    notes: "Leitura de configuração por operação e conta por requisição são consultas pontuais indexadas; sem regressão observada."
+  reliability:
+    status: PASS
+    notes: "Último admin protegido transacionalmente (teste concorrente real), importação idempotente e segura com réplicas, falha de segredo ilegível aborta o start."
+  maintainability:
+    status: PASS
+    notes: "Serviços e repositórios separados com cobertura unitária e de integração; barra superior unificada."
+recommendations:
+  immediate: []
+  future:
+    - action: "Executar o checklist pós-deploy do runbook em produção e só então abrir o follow-up de remoção de variáveis."
+      refs: ["docs/production.md"]
+    - action: "Atualizar dependências vulneráveis do backend."
+      refs: ["backend/package.json"]
+    - action: "Instalar CodeRabbit no ambiente de QA."
+      refs: []

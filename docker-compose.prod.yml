@@ -62,8 +62,8 @@ services:
       NODE_ENV: production
       PORT: 3000
       APP_ORIGIN: ${APP_ORIGIN:?APP_ORIGIN is required}
-      OIDC_ISSUER: ${OIDC_ISSUER:?OIDC_ISSUER is required}
-      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:?OIDC_CLIENT_ID is required}
+      OIDC_ISSUER: ${OIDC_ISSUER:-}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
       OIDC_CLIENT_SECRET_FILE: /run/secrets/oidc_client_secret
       OIDC_SESSION_ENCRYPTION_KEY_FILE: /run/secrets/oidc_session_encryption_key
       UPLOAD_DIR: /app/uploads
@@ -84,6 +84,8 @@ services:
       CONFIG_ENCRYPTION_KEY_FILE: /run/secrets/config_encryption_key
       CREFITO11_LOGO_PATH: /assets/logos/CREFITO 11 - Marca - Neg 2 Completa.png
       CREFITO11_LOGO_URL: ${CREFITO11_LOGO_URL:?CREFITO11_LOGO_URL is required}
+      LOCAL_LOGIN_ENABLED: ${LOCAL_LOGIN_ENABLED:-true}
+      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-2}
     secrets: &backend_secrets
       - postgres_password
       - redis_password

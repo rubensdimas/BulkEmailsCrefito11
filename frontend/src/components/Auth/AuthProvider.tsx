@@ -1,10 +1,18 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Navigate, useLocation } from 'react-router-dom';
+import axios from 'axios';
 import { AuthUser, getCurrentUser, logout as endSession } from '../../services/api';
 
 interface AuthContextValue {
   enabled: boolean;
   loading: boolean;
   user: AuthUser | null;
+  isAdmin: boolean;
+  refresh: () => Promise<void>;
+  clearUser: (message?: string) => void;
+  authError: string | null;
+  credentialError: string | null;
+  setUser: (user: AuthUser) => void;
   logout: () => Promise<void>;
 }
 
@@ -15,23 +23,59 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(authEnabled);
   const [user, setUser] = useState<AuthUser | null>(null);
 
-  useEffect(() => {
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [credentialError, setCredentialError] = useState<string | null>(null);
+  const generation = useRef(0);
+  const invalidate = useCallback(() => { generation.current += 1; setLoading(false); }, []);
+  const acceptUser = useCallback((identity: AuthUser) => {
+    invalidate(); setUser(identity); setAuthError(null); setCredentialError(null);
+  }, [invalidate]);
+  const clearUser = useCallback((message?: string) => { invalidate(); setCredentialError(message || null); setUser(null); }, [invalidate]);
+  const refresh = useCallback(async () => {
     if (!authEnabled) return;
-    let active = true;
-    getCurrentUser()
-      .then((identity) => active && setUser(identity))
-      .catch(() => active && setUser(null))
-      .finally(() => active && setLoading(false));
-    return () => { active = false; };
+    const current = ++generation.current;
+    try {
+      const identity = await getCurrentUser();
+      if (current !== generation.current) return;
+      setUser(identity); setAuthError(null); setCredentialError(null);
+    } catch (error) {
+      if (current !== generation.current) return;
+      if (axios.isAxiosError(error) && error.response?.status === 401) {
+        setUser(null);
+        setAuthError(error.response.data?.error === 'not_configured' ? 'not_configured' : null);
+      }
+    }
+    setLoading(false);
   }, []);
+
+  useEffect(() => {
+    void refresh();
+    const onRefresh = () => { void refresh(); };
+    const onInvalid = (event: Event) => {
+      invalidate(); setUser(null);
+      setAuthError((event as CustomEvent).detail === 'not_configured' ? 'not_configured' : null);
+    };
+    window.addEventListener('auth-refresh', onRefresh);
+    window.addEventListener('auth-invalid', onInvalid);
+    return () => {
+      window.removeEventListener('auth-refresh', onRefresh);
+      window.removeEventListener('auth-invalid', onInvalid);
+    };
+  }, [refresh, invalidate]);
 
   const logout = useCallback(async () => {
     if (!authEnabled) return;
-    const { logoutUrl } = await endSession();
-    window.location.assign(logoutUrl || '/');
-  }, []);
-
-  const value = useMemo(() => ({ enabled: authEnabled, loading, user, logout }), [loading, user, logout]);
+    try {
+      const { logoutUrl } = await endSession();
+      invalidate(); setUser(null);
+      window.location.assign(logoutUrl || '/login');
+    } catch (error) {
+      invalidate(); setUser(null);
+      setAuthError(axios.isAxiosError(error) && error.response?.data?.error === 'not_configured' ? 'not_configured' : null);
+    }
+  }, [invalidate]);
+  const isAdmin = !authEnabled || user?.role === 'admin';
+  const value = useMemo(() => ({ enabled: authEnabled, loading, user, setUser: acceptUser, logout, refresh, clearUser, isAdmin, authError, credentialError }), [loading, user, acceptUser, logout, refresh, clearUser, isAdmin, authError, credentialError]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
@@ -41,30 +85,18 @@ export function useAuth(): AuthContextValue {
   return value;
 }
 
-export function AuthGate({ children }: { children: ReactNode }) {
-  const { enabled, loading, user } = useAuth();
-  const [failed, setFailed] = useState(false);
-
-  useEffect(() => {
-    if (!enabled || loading || user || failed) return;
-    const query = new URLSearchParams(window.location.search);
-    if (query.has('auth_error')) {
-      setFailed(true);
-      return;
-    }
-    window.location.assign('/api/auth/oidc/login');
-  }, [enabled, loading, user, failed]);
-
-  if (!enabled || user) return <>{children}</>;
-  if (failed) {
-    return (
-      <main className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
-        <div className="text-center">
-          <p className="text-gray-700">Não foi possível concluir a autenticação.</p>
-          <a className="mt-4 inline-flex px-4 py-2 text-sm font-medium text-white bg-primary-600 rounded-md hover:bg-primary-700" href="/api/auth/oidc/login">Entrar novamente</a>
-        </div>
-      </main>
-    );
-  }
+export function AuthLoading() {
   return <main className="min-h-screen bg-gray-50 flex items-center justify-center"><span className="sr-only">Autenticando</span></main>;
+}
+
+export function AuthGate({ children }: { children: ReactNode }) {
+  const { enabled, loading, user, authError, credentialError } = useAuth();
+  const location = useLocation();
+
+  if (enabled && user?.mustChangePassword && location.pathname !== '/account/password') return <Navigate to="/account/password" replace />;
+  if (!enabled || user) return <>{children}</>;
+  if (loading) return <AuthLoading />;
+  if (credentialError) return <Navigate to="/login" replace state={{ credentialError }} />;
+  const next = `${location.pathname}${location.search}`;
+  return <Navigate to={`/login?next=${encodeURIComponent(next)}${authError ? `&auth_error=${authError}` : ''}`} replace />;
 }
