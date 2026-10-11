@@ -21,6 +21,9 @@ export default function SettingsOidcPage() {
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
 
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+
   useEffect(() => {
     const controller = new AbortController();
     (async () => {
@@ -31,16 +34,23 @@ export default function SettingsOidcPage() {
         setIssuer(data.issuer);
         setClientId(data.clientId);
         setBackchannelOrigin(data.backchannelOrigin);
+        setLoadError(null);
       } catch (error) {
         if (!axios.isCancel(error)) {
-          setFeedback({ type: 'error', text: apiErrorMessage(error, 'Não foi possível carregar as configurações.') });
+          setLoadError(apiErrorMessage(error, 'Não foi possível carregar as configurações.'));
         }
       } finally {
         if (!controller.signal.aborted) setIsLoading(false);
       }
     })();
     return () => controller.abort();
-  }, []);
+  }, [attempt]);
+
+  const retry = () => {
+    setFeedback(null);
+    setIsLoading(true);
+    setAttempt(n => n + 1);
+  };
 
   const backchannelAllowed = Boolean(config?.backchannelAllowed);
   const input = (): OidcConfigInput => ({
@@ -93,6 +103,20 @@ export default function SettingsOidcPage() {
     );
   }
 
+  if (loadError || !config) {
+    return (
+      <div>
+        <h2 className="text-lg font-semibold text-gray-900">Login intranet</h2>
+        <div role="alert" className="my-6 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          {loadError ?? 'Não foi possível carregar as configurações.'}
+        </div>
+        <button type="button" onClick={retry} className="rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200">
+          Tentar novamente
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div>
       <h2 className="text-lg font-semibold text-gray-900">Login intranet</h2>
@@ -132,7 +156,7 @@ export default function SettingsOidcPage() {
               value={clientSecret}
               onChange={e => setClientSecret(e.target.value)}
               className={inputClass}
-              placeholder={config?.clientSecretConfigured ? 'Configurado — deixe em branco para manter' : ''}
+              placeholder={config.clientSecretConfigured ? 'Configurado — deixe em branco para manter' : ''}
             />
           </div>
         </div>
@@ -148,8 +172,8 @@ export default function SettingsOidcPage() {
         <div>
           <label htmlFor="oidc-callback" className={labelClass}>URL de callback</label>
           <div className="flex gap-2">
-            <input id="oidc-callback" type="text" readOnly value={config?.callbackUrl ?? ''} className={`${inputClass} bg-gray-50 text-gray-600`} />
-            <button type="button" onClick={handleCopy} className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
+            <input id="oidc-callback" type="text" readOnly value={config.callbackUrl} className={`${inputClass} bg-gray-50 text-gray-600`} />
+            <button type="button" onClick={handleCopy} disabled={!config.callbackUrl} className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50">
               Copiar
             </button>
           </div>

@@ -211,11 +211,18 @@ test.describe('Intranet login settings', () => {
       if (route.request().method() === 'POST') saved = true;
       await route.fulfill(json({ success: true, data: oidcConfig }));
     });
-    await page.route('**/api/config/oidc/test', (route: Route) => route.fulfill(json({ success: true, message: 'Conexão validada: discovery e chaves de assinatura encontrados.' })));
+    let testBody: unknown = null;
+    await page.route('**/api/config/oidc/test', (route: Route) => {
+      testBody = route.request().postDataJSON();
+      return route.fulfill(json({ success: true, message: 'Conexão validada: discovery e chaves de assinatura encontrados.' }));
+    });
     await page.goto('/settings/oidc');
     await page.getByRole('button', { name: 'Testar' }).click();
     await expect(page.getByRole('status')).toHaveText('Conexão validada: discovery e chaves de assinatura encontrados.');
     expect(saved).toBe(false);
+    expect(testBody).toEqual({
+      enabled: true, issuer: 'https://intranet.crefito11.gov.br', clientId: 'bulkmail', clientSecret: '', backchannelOrigin: '',
+    });
   });
 
   test('saves and shows validation errors from the server', async ({ page }) => {
@@ -308,5 +315,45 @@ test.describe('Intranet login settings', () => {
     await page.goto('/settings/oidc');
     await page.getByRole('button', { name: 'Copiar' }).click();
     await expect(page.getByRole('status')).toHaveText('URL de callback copiada.');
+  });
+
+  test('blocks the form when loading fails and recovers on retry', async ({ page }) => {
+    await mockAdmin(page);
+    let posts = 0;
+    let fail = true;
+    await page.route('**/api/config/oidc', async (route: Route) => {
+      if (route.request().method() === 'POST') { posts += 1; await route.fulfill(json({ success: true, message: 'Salvo.' })); return; }
+      if (fail) { await route.fulfill(json({ success: false, error: 'internal', message: 'Falha ao carregar.' }, 500)); return; }
+      await route.fulfill(json({ success: true, data: oidcConfig }));
+    });
+    await page.goto('/settings/oidc');
+    await expect(page.getByRole('alert')).toHaveText('Falha ao carregar.');
+    await expect(page.getByRole('button', { name: 'Salvar' })).toHaveCount(0);
+    await expect(page.getByLabel('Issuer')).toHaveCount(0);
+    fail = false;
+    await page.getByRole('button', { name: 'Tentar novamente' }).click();
+    await expect(page.getByLabel('Issuer')).toHaveValue('https://intranet.crefito11.gov.br');
+    await expect(page.getByRole('button', { name: 'Salvar' })).toBeVisible();
+    expect(posts).toBe(0);
+  });
+
+  test('saves an empty disabled configuration', async ({ page }) => {
+    await mockAdmin(page);
+    let posted: unknown = null;
+    await page.route('**/api/config/oidc', async (route: Route) => {
+      if (route.request().method() === 'POST') {
+        posted = route.request().postDataJSON();
+        await route.fulfill(json({ success: true, message: 'Configuração da intranet atualizada.' }));
+        return;
+      }
+      await route.fulfill(json({ success: true, data: oidcConfig }));
+    });
+    await page.goto('/settings/oidc');
+    await page.getByLabel('Ativar login pela intranet').uncheck();
+    await page.getByLabel('Issuer').fill('');
+    await page.getByLabel('Client ID').fill('');
+    await page.getByRole('button', { name: 'Salvar' }).click();
+    await expect(page.getByRole('status')).toHaveText('Configuração da intranet atualizada.');
+    expect(posted).toEqual({ enabled: false, issuer: '', clientId: '', clientSecret: '', backchannelOrigin: '' });
   });
 });
