@@ -1,3 +1,5 @@
+const mockChangeOwnPassword = jest.fn();
+jest.mock('../services/userAdminService', () => ({ ...jest.requireActual('../services/userAdminService'), createUserAdminService: () => ({ changeOwnPassword: mockChangeOwnPassword }) }));
 const mockUsers = { upsertOidcUser: jest.fn(), recordLogin: jest.fn() };
 jest.mock('../services/databaseService', () => ({ getUserRepository: () => mockUsers }));
 const mockRedisDelete = jest.fn().mockResolvedValue(1);
@@ -213,4 +215,20 @@ it('refuses disabled OIDC account before creating session', async () => {
   expect(response.redirect).toHaveBeenCalledWith(302, 'https://app.example/login?auth_error=unauthorized');
   expect(createSession).not.toHaveBeenCalled();
   expect(mockUsers.recordLogin).not.toHaveBeenCalled();
+});
+
+it('changes own password and reports domain errors', async () => {
+  const { UserAdminError } = jest.requireActual('../services/userAdminService');
+  const account = { id: 'l', provider: 'local' };
+  const request = { auth: { account }, body: { currentPassword: 'a', newPassword: 'b' } } as unknown as Request;
+  let response = mockResponse();
+  await finalHandler('post', '/password')(request, response as unknown as Response, next);
+  expect(mockChangeOwnPassword).toHaveBeenCalledWith(account, 'a', 'b');
+  expect(response.json).toHaveBeenCalledWith({ success: true });
+  mockChangeOwnPassword.mockRejectedValueOnce(new UserAdminError('credentials_changed', 409, 'Sua senha foi alterada. Entre novamente para continuar.'));
+  response = mockResponse();
+  await finalHandler('post', '/password')(request, response as unknown as Response, next);
+  expect(response.status).toHaveBeenCalledWith(409);
+  expect(response.json).toHaveBeenCalledWith({ success: false, error: 'credentials_changed', message: 'Sua senha foi alterada. Entre novamente para continuar.' });
+  expect(routeStack('post', '/password')).toContain(requireTrustedOrigin);
 });

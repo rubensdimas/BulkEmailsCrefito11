@@ -1,6 +1,10 @@
 import { Request, Response, NextFunction } from 'express';
 import { getConfigService, isDatabaseReady } from '../services/databaseService';
-import { MailgridConfig } from '../models/SystemConfig';
+import type { AuthenticatedRequest } from '../middlewares/authentication';
+import { accountLabel } from '../services/userAdminService';
+import { logSettingsChange } from '../services/settingsAudit';
+import { OidcError, probeOidcProvider, validateStoredOidcSettings } from '../services/oidcService';
+import { MailgridConfig, OidcSettings } from '../models/SystemConfig';
 import { sendViaMailgrid } from '../services/mailgridService';
 
 /**
@@ -54,7 +58,8 @@ export const updateMailgridConfig = async (
   next: NextFunction
 ): Promise<void> => {
   try {
-    const config: MailgridConfig = req.body;
+    const suppliedSecrets = ['pass', 'webhook_token'].filter(field => Boolean(req.body?.[field]));
+    const config: MailgridConfig = { ...req.body };
 
     // Basic validation
     if (!config.host || !config.user || !config.from_address) {
@@ -83,6 +88,7 @@ export const updateMailgridConfig = async (
     }
 
     await configService.updateMailgridConfig(config);
+    logSettingsChange({ actor: actorOf(req), action: 'settings.update_mailgrid', fields: ['host', 'user', 'from_address', 'from_name', ...suppliedSecrets] });
 
     res.status(200).json({
       success: true,
@@ -142,8 +148,84 @@ export const testMailgridConfig = async (
   }
 };
 
+const actorOf = (request: Request): string => {
+  const account = (request as AuthenticatedRequest).auth?.account;
+  return account ? accountLabel(account) : 'unknown';
+};
+const databaseAvailable = (response: Response): boolean => {
+  if (isDatabaseReady()) return true;
+  response.status(503).json({ success: false, error: 'Database not available' });
+  return false;
+};
+const oidcInput = async (body: unknown): Promise<OidcSettings> => {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) throw new OidcError('Informe uma configuração válida.', 'configuration_error');
+  const input = body as Record<string, unknown>;
+  if (typeof input.enabled !== 'boolean' || ['issuer', 'clientId', 'backchannelOrigin'].some(key => typeof input[key] !== 'string') ||
+    (input.clientSecret !== undefined && typeof input.clientSecret !== 'string')) {
+    throw new OidcError('Informe uma configuração válida.', 'configuration_error');
+  }
+  const current = await getConfigService().getOidcSettings();
+  return {
+    enabled: input.enabled,
+    issuer: input.issuer as string,
+    clientId: input.clientId as string,
+    clientSecret: (input.clientSecret as string | undefined) || current?.clientSecret || '',
+    backchannelOrigin: input.backchannelOrigin as string,
+  };
+};
+const configurationFailure = (error: unknown, response: Response, next: NextFunction): void => {
+  if (error instanceof OidcError && error.code === 'configuration_error') {
+    response.status(400).json({ success: false, error: 'invalid_oidc_settings', message: error.message });
+    return;
+  }
+  next(error);
+};
+export const getOidcConfig = async (_request: Request, response: Response, next: NextFunction): Promise<void> => {
+  try {
+    if (!databaseAvailable(response)) return;
+    const settings = await getConfigService().getOidcSettings() ?? { enabled: false, issuer: '', clientId: '', clientSecret: '', backchannelOrigin: '' };
+    response.json({ success: true, data: {
+      enabled: settings.enabled, issuer: settings.issuer, clientId: settings.clientId,
+      clientSecret: '', clientSecretConfigured: Boolean(settings.clientSecret),
+      backchannelAllowed: process.env.NODE_ENV !== 'production', backchannelOrigin: settings.backchannelOrigin,
+      callbackUrl: `${(process.env.APP_ORIGIN || '').replace(/\/$/, '')}/api/auth/oidc/callback`,
+    } });
+  } catch (error) { next(error); }
+};
+export const updateOidcConfig = async (request: Request, response: Response, next: NextFunction): Promise<void> => {
+  try {
+    if (!databaseAvailable(response)) return;
+    const settings = await oidcInput(request.body);
+    // Validate populated fields even when OIDC login is disabled.
+    validateStoredOidcSettings(settings);
+    await getConfigService().updateOidcSettings(settings);
+    logSettingsChange({ actor: actorOf(request), action: 'settings.update_oidc', fields: [
+      'enabled', 'issuer', 'clientId', 'backchannelOrigin', ...(request.body?.clientSecret ? ['clientSecret'] : []),
+    ] });
+    response.json({ success: true, message: 'Configuração da intranet atualizada.' });
+  } catch (error) { configurationFailure(error, response, next); }
+};
+export const testOidcConfig = async (request: Request, response: Response, next: NextFunction): Promise<void> => {
+  let settings: OidcSettings;
+  try {
+    if (!databaseAvailable(response)) return;
+    settings = await oidcInput(request.body);
+    validateStoredOidcSettings(settings);
+  } catch (error) { configurationFailure(error, response, next); return; }
+  try {
+    await probeOidcProvider(settings);
+    response.json({ success: true, message: 'Conexão validada: discovery e chaves de assinatura encontrados.' });
+  } catch {
+    // Provider errors can include remote bodies or credentials; expose a fixed message.
+    response.status(400).json({ success: false, error: 'oidc_test_failed', message: 'Não foi possível conectar ao issuer.' });
+  }
+};
+
 export default {
   getMailgridConfig,
   updateMailgridConfig,
-  testMailgridConfig
+  testMailgridConfig,
+  getOidcConfig,
+  updateOidcConfig,
+  testOidcConfig
 };

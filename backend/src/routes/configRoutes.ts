@@ -31,4 +31,8 @@ router.post('/mailgrid/test', configController.testMailgridConfig);
 // Legacy alias for the test endpoint.
 router.post('/smtp/test', configController.testMailgridConfig);
 
+router.get('/oidc', configController.getOidcConfig);
+router.post('/oidc', configController.updateOidcConfig);
+router.post('/oidc/test', configController.testOidcConfig);
+
 export default router;

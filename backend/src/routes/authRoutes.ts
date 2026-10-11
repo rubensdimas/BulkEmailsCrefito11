@@ -41,6 +41,8 @@ import { verifyAgainstDummy, verifyPassword } from '../services/passwordHasher';
 import { toAccountView } from '../services/accountService';
 import { sanitizeReturnTo } from '../utils/returnTo';
 
+import { handleUserAdmin, userAdminService } from './userAdminRoutes';
+
 const router = Router();
 const LOGIN_COOKIE_MAX_AGE = 5 * 60 * 1000;
 
@@ -151,6 +153,11 @@ router.get('/me', requireAuthentication, (request: AuthenticatedRequest, respons
     data: auth ? toAccountView(auth.session, auth.account) : undefined,
   });
 });
+
+router.post('/password', requireAuthentication, requireTrustedOrigin, handleUserAdmin(async (request, response) => {
+  await userAdminService().changeOwnPassword(request.auth!.account, request.body?.currentPassword, request.body?.newPassword);
+  response.json({ success: true });
+}));
 
 router.post('/logout', requireAuthentication, requireTrustedOrigin, async (request: AuthenticatedRequest, response: Response, next) => {
   try {

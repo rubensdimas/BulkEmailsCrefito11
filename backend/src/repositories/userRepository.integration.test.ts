@@ -29,7 +29,7 @@ describeDatabase('UserRepository PostgreSQL integration', () => {
   });
 
   afterAll(async () => {
-    await database('users').where({ username }).orWhere({ oidc_sub: sub }).delete();
+    await database('users').where({ username }).orWhere({ oidc_sub: sub }).orWhere({ username: `cas-${suffix}` }).delete();
     await database.destroy();
   });
 
@@ -96,6 +96,14 @@ describeDatabase('UserRepository PostgreSQL integration', () => {
     await expect(repository.findById(user.id)).resolves.toMatchObject({
       credentialVersion: version, mustChangePassword: false,
     });
+  });
+
+  it('does not overwrite a concurrent administrative reset', async () => {
+    const before = await repository.create({ username: `cas-${suffix}`, passwordHash: 'hash-old' });
+    await repository.updatePassword(before.id, 'hash-reset', true);
+    const changed = await repository.changePasswordIfCurrent(before.id, before.passwordHash, before.credentialVersion, 'hash-own');
+    expect(changed).toBe(false);
+    expect(await repository.findById(before.id)).toMatchObject({ passwordHash: 'hash-reset', mustChangePassword: true, credentialVersion: 1 });
   });
 
   it('registers operators and refreshes only their name and email', async () => {
