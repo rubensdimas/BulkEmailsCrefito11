@@ -1,0 +1,43 @@
+schema: 1
+story: "4.3"
+story_title: "Remover bind mount de arquivo único do package.json no Compose de desenvolvimento"
+gate: PASS
+status_reason: "Os 4 ACs foram verificados pelo QA nos containers em execução: sem mount de package.json, npm run funciona após substituir o arquivo no host (novo inode) e o hot reload de src continua ativo. A mudança é restrita ao Compose de desenvolvimento e ao README."
+reviewer: "Quinn (Test Architect)"
+updated: "2026-10-10T22:40:00-03:00"
+quality_score: 100
+top_issues: []
+waiver:
+  active: false
+evidence:
+  tests_reviewed: 0
+  risks_identified: 0
+  trace:
+    ac_covered: [1, 2, 3, 4]
+    ac_gaps: []
+  commands_rerun_by_qa:
+    - "docker compose config --quiet OK"
+    - "docker inspect bulkmail-backend / bulkmail-worker: nenhum mount de /app/package.json; /app/src, knexfile.ts e tsconfig.json mantidos"
+    - "cp + mv de backend/package.json no host (inode 8193603 -> 8193628); conteúdo idêntico ao commitado (git diff --quiet)"
+    - "docker exec bulkmail-backend npm run user:admin -- --help e o mesmo em bulkmail-worker: npm lê /app/package.json e imprime o uso do script, sem ENOENT"
+    - "touch backend/src/app.ts: ts-node-dev reiniciou em ~1s; GET /api/health/ready -> 200"
+nfr_validation:
+  security:
+    status: PASS
+    notes: "Remove um mount somente leitura; nenhum segredo, porta ou permissão alterados. Compose de produção não é afetado."
+  performance:
+    status: PASS
+    notes: "Sem impacto em runtime; package.json passa a vir da camada da imagem."
+  reliability:
+    status: PASS
+    notes: "Elimina o ENOENT após git pull/merge/troca de branch. Mounts de arquivo único de knexfile.ts e tsconfig.json permanecem com o mesmo risco, fora de escopo por decisão e documentados no README com o procedimento de recuperação."
+  maintainability:
+    status: PASS
+    notes: "README orienta rebuild após alterar backend/package.json e force-recreate para os mounts de arquivo único restantes."
+recommendations:
+  immediate: []
+  future:
+    - action: "Avaliar remover também os mounts de arquivo único de knexfile.ts e tsconfig.json (ou montá-los via diretório) se o ENOENT voltar a ocorrer."
+      refs: ["docker-compose.yml"]
+    - action: "Opcional: fazer `npm run user:admin -- --help` sair com código 0 (hoje imprime o uso pelo caminho de erro e sai com 1; comportamento pré-existente)."
+      refs: ["backend/src/scripts/manageLocalAdmin.ts"]
