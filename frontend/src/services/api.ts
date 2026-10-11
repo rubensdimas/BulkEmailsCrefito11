@@ -33,15 +33,18 @@ api.interceptors.response.use(
   (error: AxiosError) => {
     if (error.response) {
       const status = error.response.status;
-      const data = error.response.data as { message?: string };
+      const data = error.response.data as { message?: string; error?: string };
       console.error(`[API] Error ${status}:`, data.message || error.message);
 
-      // An expired session during use sends the user back to the login page.
       const isAuthRequest = error.config?.url?.startsWith('/auth/') ?? false;
-      if (status === 401 && authEnabled && !isAuthRequest && window.location.pathname !== '/login') {
-        const next = `${window.location.pathname}${window.location.search}`;
-        window.location.assign(`/login?next=${encodeURIComponent(next)}`);
+      if (authEnabled && !isAuthRequest) {
+        if (status === 401) {
+          window.dispatchEvent(new CustomEvent('auth-invalid', { detail: data.error }));
+        } else if (status === 403) {
+          window.dispatchEvent(new Event('auth-refresh'));
+        }
       }
+
     } else if (error.request) {
       console.error('[API] No response received:', error.message);
     } else {
@@ -207,7 +210,12 @@ export interface ConfigResponse<T> {
 
 export type AuthProviderName = 'oidc' | 'local';
 
+export type UserRole = 'admin' | 'operator';
+
 export interface AuthUser {
+  userId?: string;
+  role?: UserRole;
+  mustChangePassword?: boolean;
   sub: string;
   name?: string;
   email?: string;
@@ -216,6 +224,7 @@ export interface AuthUser {
 
 export interface AuthOptions {
   localLoginEnabled: boolean;
+  oidcEnabled: boolean;
 }
 
 // ============= API Functions =============
@@ -327,3 +336,15 @@ export const loginWithPassword = async (username: string, password: string): Pro
 
 export default api;
 export { api };
+
+export const changeOwnPassword = async (currentPassword: string, newPassword: string): Promise<void> => {
+  await api.post('/auth/password', { currentPassword, newPassword });
+};
+
+export const apiErrorMessage = (error: unknown, fallback: string): string => {
+  if (axios.isAxiosError(error)) {
+    const data = error.response?.data as { message?: string } | undefined;
+    return data?.message || fallback;
+  }
+  return fallback;
+};

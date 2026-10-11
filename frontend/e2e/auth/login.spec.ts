@@ -1,6 +1,6 @@
 import { test, expect, type Page, type Route } from '@playwright/test';
 
-const admin = { sub: 'local:user-1', name: 'admin', provider: 'local' };
+const admin = { sub: 'local:user-1', name: 'admin', provider: 'local', role: 'admin', userId: 'user-1', mustChangePassword: false };
 const json = (body: unknown, status = 200) => ({ status, contentType: 'application/json', body: JSON.stringify(body) });
 
 const mockApi = async (page: Page, { authenticated = false, localLoginEnabled = true } = {}) => {
@@ -10,7 +10,7 @@ const mockApi = async (page: Page, { authenticated = false, localLoginEnabled = 
       ? json({ success: true, data: admin })
       : json({ success: false, error: 'Authentication required' }, 401),
   ));
-  await page.route('**/api/auth/options', (route: Route) => route.fulfill(json({ success: true, data: { localLoginEnabled } })));
+  await page.route('**/api/auth/options', (route: Route) => route.fulfill(json({ success: true, data: { localLoginEnabled, oidcEnabled: true } })));
   await page.route('**/api/jobs*', (route: Route) => route.fulfill(json({
     success: true, data: [], pagination: { total: 0, limit: 10, offset: 0, pages: 0 },
   })));

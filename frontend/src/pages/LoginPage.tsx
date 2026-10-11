@@ -1,6 +1,6 @@
 // frontend/src/pages/LoginPage.tsx
 import { useEffect, useState, type FormEvent } from 'react';
-import { Navigate, useSearchParams } from 'react-router-dom';
+import { Link, Navigate, useLocation, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import logo from '../assets/crefito11-logo-negativo.png';
 import { AuthLoading, useAuth } from '../components/Auth/AuthProvider';
@@ -8,6 +8,8 @@ import { getAuthOptions, loginWithPassword } from '../services/api';
 import { sanitizeReturnTo } from '../utils/returnTo';
 
 const OIDC_ERROR_MESSAGES: Record<string, string> = {
+  unauthorized: 'Acesso não autorizado. Procure um administrador do BulkMail.',
+  not_configured: 'O login pela intranet não está configurado.',
   access_denied: 'O acesso pela intranet foi cancelado.',
 };
 const DEFAULT_OIDC_ERROR = 'Não foi possível concluir o login pela intranet. Tente novamente.';
@@ -22,10 +24,14 @@ const loginErrorMessage = (error: unknown): string => {
 const inputClassName = 'mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-gray-900 focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500';
 
 export default function LoginPage() {
-  const { enabled, loading, user, setUser } = useAuth();
+  const { enabled, loading, user, setUser, authError } = useAuth();
+  const location = useLocation();
+  const credentialError = (location.state as { credentialError?: string } | null)?.credentialError;
+  const [oidcEnabled, setOidcEnabled] = useState(false);
+  const [optionsLoaded, setOptionsLoaded] = useState(false);
   const [params] = useSearchParams();
   const next = sanitizeReturnTo(params.get('next'));
-  const oidcError = params.get('auth_error');
+  const oidcError = params.get('auth_error') || authError;
   const [localLoginEnabled, setLocalLoginEnabled] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -36,8 +42,9 @@ export default function LoginPage() {
     if (!enabled) return;
     let active = true;
     getAuthOptions()
-      .then((options) => active && setLocalLoginEnabled(options.localLoginEnabled))
-      .catch(() => active && setLocalLoginEnabled(false));
+      .then((options) => { if (active) { setLocalLoginEnabled(options.localLoginEnabled); setOidcEnabled(options.oidcEnabled); } })
+      .catch(() => { if (active) { setLocalLoginEnabled(false); setOidcEnabled(false); } })
+      .finally(() => active && setOptionsLoaded(true));
     return () => { active = false; };
   }, [enabled]);
 
@@ -68,27 +75,29 @@ export default function LoginPage() {
         <div className="space-y-6 px-8 py-8">
           <h1 className="text-center text-xl font-semibold text-gray-900">Acessar o BulkMail</h1>
 
-          {oidcError && (
+          {credentialError && <><p role="alert" className="text-red-700">{credentialError}</p><Link to="/login" replace>Entrar novamente</Link></>}
+          {!credentialError && oidcError && (
             <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
               {OIDC_ERROR_MESSAGES[oidcError] ?? DEFAULT_OIDC_ERROR}
             </p>
           )}
 
-          <a
+          {oidcEnabled && <a
             href={`/api/auth/oidc/login?next=${encodeURIComponent(next)}`}
             className="flex w-full items-center justify-center gap-3 rounded-md bg-slate-900 px-4 py-3 text-sm font-medium text-white hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2"
           >
             <img src="/apple-touch-icon.png" alt="" aria-hidden="true" className="h-6 w-6" />
             Entrar no login intranet
-          </a>
+          </a>}
 
+          {optionsLoaded && !localLoginEnabled && !oidcEnabled && <p role="alert">Nenhum método de login está disponível. Procure um administrador do BulkMail.</p>}
           {localLoginEnabled && (
             <>
-              <div className="flex items-center gap-3 text-xs uppercase text-gray-400">
+              {oidcEnabled && <div className="flex items-center gap-3 text-xs uppercase text-gray-400">
                 <span className="h-px flex-1 bg-gray-200" />
                 ou
                 <span className="h-px flex-1 bg-gray-200" />
-              </div>
+              </div>}
 
               <form className="space-y-4" onSubmit={(event) => void handleSubmit(event)} noValidate>
                 <div>
