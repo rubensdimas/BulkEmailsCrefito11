@@ -112,7 +112,7 @@ test('refreshes the role after a forbidden settings request', async ({ page }) =
     state.user = { ...admin, role: 'operator' };
     return route.fulfill(json({ success: false, error: 'forbidden' }, 403));
   });
-  await page.goto('/settings');
+  await page.goto('/settings/email');
   await expect(page).toHaveURL(/\/$/);
   await expect(page.getByRole('navigation', { name: 'Principal' }).getByRole('link', { name: 'Configurações' })).toHaveCount(0);
 });

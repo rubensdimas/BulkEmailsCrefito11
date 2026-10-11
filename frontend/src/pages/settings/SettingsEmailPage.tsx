@@ -1,7 +1,6 @@
 import { useState, useEffect, type ChangeEvent, type FormEvent } from 'react';
 import axios from 'axios';
-import { getMailgridConfig, updateMailgridConfig, testMailgridConfig, MailgridConfig } from '../services/api';
-import { AppHeader } from '../components/Layout/AppHeader';
+import { getMailgridConfig, updateMailgridConfig, testMailgridConfig, MailgridConfig } from '../../services/api';
 
 interface ApiErrorResponse {
   error?: string;
@@ -27,7 +26,7 @@ const getErrorMessage = (error: unknown, fields: Array<keyof ApiErrorResponse> =
   return 'Erro desconhecido';
 };
 
-export function SettingsPage() {
+export default function SettingsEmailPage() {
   const [config, setConfig] = useState<MailgridConfig>({
     host: '',
     user: '',
@@ -126,18 +125,16 @@ export function SettingsPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="flex justify-center py-12">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <AppHeader />
-      <div className="max-w-4xl mx-auto px-4 pt-6"><h1 className="text-2xl font-bold text-gray-900">Configurações</h1></div>
-
-      <main className="max-w-4xl mx-auto px-4 pb-8 pt-6">
+    <div>
+      <h2 className="text-lg font-semibold text-gray-900">E-mail (Mailgrid)</h2>
+      <p className="text-sm text-gray-600 mt-1 mb-6">Credenciais da API Mailgrid usadas nos envios.</p>
         {message && (
           <div className={`mb-6 p-4 rounded-lg border ${message.type === 'success' ? 'bg-green-50 border-green-200 text-green-700' : 'bg-red-50 border-red-200 text-red-700'}`}>
             <div className="flex items-center gap-3">
@@ -322,9 +319,6 @@ export function SettingsPage() {
             </section>
           </div>
         </div>
-      </main>
     </div>
   );
 }
-
-export default SettingsPage;

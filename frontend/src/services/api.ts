@@ -348,3 +348,34 @@ export const apiErrorMessage = (error: unknown, fallback: string): string => {
   }
   return fallback;
 };
+
+export interface ManagedUser {
+  id: string;
+  provider: AuthProviderName;
+  username: string | null;
+  name: string | null;
+  email: string | null;
+  role: UserRole;
+  disabled: boolean;
+  mustChangePassword: boolean;
+  lastLoginAt: string | null;
+}
+
+export const listUsers = async (): Promise<ManagedUser[]> => {
+  const response = await api.get<ConfigResponse<ManagedUser[]>>('/admin/users');
+  return response.data.data;
+};
+
+export const createLocalUser = async (input: { username: string; password: string; role: UserRole }): Promise<ManagedUser> => {
+  const response = await api.post<ConfigResponse<ManagedUser>>('/admin/users', input);
+  return response.data.data;
+};
+
+export const updateUserAccess = async (id: string, change: { role?: UserRole; disabled?: boolean }): Promise<ManagedUser> => {
+  const response = await api.patch<ConfigResponse<ManagedUser>>(`/admin/users/${encodeURIComponent(id)}`, change);
+  return response.data.data;
+};
+
+export const resetUserPassword = async (id: string, password: string): Promise<void> => {
+  await api.post(`/admin/users/${encodeURIComponent(id)}/password`, { password });
+};
