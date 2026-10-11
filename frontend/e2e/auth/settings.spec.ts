@@ -72,7 +72,7 @@ test.describe('Settings', () => {
     await expect(anaRow).toContainText('Intranet');
     await expect(anaRow).toContainText('Operador');
     await expect(anaRow).toContainText('Nunca');
-    await expect(page.getByRole('row', { name: /admin/ }).first()).toContainText('Administrador');
+    await expect(page.getByRole('row', { name: /^admin\b/ })).toContainText('Administrador');
   });
 
   test('creates a local operator', async ({ page }) => {
@@ -86,10 +86,38 @@ test.describe('Settings', () => {
     await expect(page.getByRole('row', { name: /joao\.silva/ })).toContainText('Operador');
   });
 
+  test('defaults the new user profile to administrator', async ({ page }) => {
+    await mockAdmin(page);
+    await page.goto('/settings/users');
+    await page.getByLabel('Novo usuário').fill('maria.lima');
+    await page.getByLabel('Senha inicial').fill('senha-inicial-123');
+    const request = page.waitForRequest((req) => req.method() === 'POST' && req.url().endsWith('/api/admin/users'));
+    await page.getByRole('button', { name: 'Criar usuário' }).click();
+    expect((await request).postDataJSON()).toMatchObject({ username: 'maria.lima', role: 'admin' });
+  });
+
+  test('clears the reset form on reopen and closes it when the user is disabled', async ({ page }) => {
+    await mockAdmin(page);
+    await page.goto('/settings/users');
+    await page.getByLabel('Novo usuário').fill('joao.silva');
+    await page.getByLabel('Senha inicial').fill('senha-inicial-123');
+    await page.getByRole('button', { name: 'Criar usuário' }).click();
+    const adminRow = page.getByRole('row', { name: /^admin\b/ });
+    await adminRow.getByRole('button', { name: 'Definir senha' }).click();
+    await page.getByLabel('Nova senha').fill('abc');
+    const joaoRow = page.getByRole('row', { name: /^joao\.silva\b/ });
+    await joaoRow.getByRole('button', { name: 'Definir senha' }).click();
+    await expect(page.getByLabel('Nova senha')).toHaveCount(1);
+    await expect(page.getByLabel('Nova senha')).toHaveValue('');
+    await joaoRow.getByRole('button', { name: 'Desativar' }).click();
+    await expect(joaoRow).toContainText('Desativado');
+    await expect(page.getByLabel('Nova senha')).toHaveCount(0);
+  });
+
   test('shows the backend message when the action is refused', async ({ page }) => {
     await mockAdmin(page);
     await page.goto('/settings/users');
-    await page.getByRole('row', { name: /admin/ }).first().getByRole('button', { name: 'Tornar operador' }).click();
+    await page.getByRole('row', { name: /^admin\b/ }).getByRole('button', { name: 'Tornar operador' }).click();
     await expect(page.getByRole('alert')).toHaveText('Não é possível desativar ou rebaixar o último administrador ativo.');
   });
 
@@ -112,7 +140,7 @@ test.describe('Settings', () => {
   test('resets a local user password and tells the admin it must be changed', async ({ page }) => {
     const state = await mockAdmin(page);
     await page.goto('/settings/users');
-    const adminRow = page.getByRole('row', { name: /admin/ }).first();
+    const adminRow = page.getByRole('row', { name: /^admin\b/ });
     await expect(page.getByRole('row', { name: /Ana Souza/ }).getByRole('button', { name: 'Definir senha' })).toHaveCount(0);
     await adminRow.getByRole('button', { name: 'Definir senha' }).click();
     await page.getByLabel('Nova senha').fill('nova-senha-segura-1');
@@ -128,7 +156,7 @@ test.describe('Settings', () => {
   test('shows the backend message when the password is refused', async ({ page }) => {
     await mockAdmin(page);
     await page.goto('/settings/users');
-    await page.getByRole('row', { name: /admin/ }).first().getByRole('button', { name: 'Definir senha' }).click();
+    await page.getByRole('row', { name: /^admin\b/ }).getByRole('button', { name: 'Definir senha' }).click();
     await page.getByLabel('Nova senha').fill('curta');
     await page.getByLabel('Confirmar senha').fill('curta');
     await page.getByRole('button', { name: 'Salvar senha' }).click();
@@ -141,7 +169,7 @@ test.describe('Settings', () => {
     await page.goto('/settings/users');
     await expect(page.getByRole('navigation', { name: 'Principal' }).getByRole('link', { name: 'Configurações' })).toBeVisible();
     state.session = { ...admin, userId: self, role: 'operator' };
-    await page.getByRole('row', { name: /admin/ }).first().getByRole('button', { name: 'Tornar operador' }).click();
+    await page.getByRole('row', { name: /^admin\b/ }).getByRole('button', { name: 'Tornar operador' }).click();
     await expect(page).toHaveURL(/\/$/);
     await expect(page.getByRole('navigation', { name: 'Principal' }).getByRole('link', { name: 'Configurações' })).toHaveCount(0);
   });

@@ -21,7 +21,7 @@ export default function SettingsUsersPage() {
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState<UserRole>('operator');
+  const [role, setRole] = useState<UserRole>('admin');
   const [resetId, setResetId] = useState<string | null>(null);
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -45,7 +45,7 @@ export default function SettingsUsersPage() {
     try {
       const created = await createLocalUser({ username, password, role });
       setUsers((list) => [...list, created]);
-      setUsername(''); setPassword(''); setRole('operator');
+      setUsername(''); setPassword(''); setRole('admin');
       setFeedback({ type: 'success', text: `Usuário "${created.username ?? username}" criado. A senha deverá ser trocada no primeiro acesso.` });
     } catch (error) {
       setFeedback({ type: 'error', text: apiErrorMessage(error, 'Não foi possível criar o usuário.') });
@@ -58,13 +58,16 @@ export default function SettingsUsersPage() {
     setBusy(true); setFeedback(null);
     try {
       replaceUser(await updateUserAccess(target.id, change));
-      if (current?.userId && current.userId === target.id) await refresh();
+      if (resetId === target.id) closeReset();
+      if (current?.userId && current.userId === target.id) void refresh();
     } catch (error) {
       setFeedback({ type: 'error', text: apiErrorMessage(error, 'Não foi possível atualizar o usuário.') });
     } finally {
       setBusy(false);
     }
   };
+
+  const closeReset = () => { setResetId(null); setNewPassword(''); setConfirmPassword(''); };
 
   const openReset = (target: ManagedUser) => {
     setResetId(target.id); setNewPassword(''); setConfirmPassword(''); setFeedback(null);
@@ -79,7 +82,7 @@ export default function SettingsUsersPage() {
     setBusy(true); setFeedback(null);
     try {
       await resetUserPassword(target.id, newPassword);
-      setResetId(null); setNewPassword(''); setConfirmPassword('');
+      closeReset();
       replaceUser({ ...target, mustChangePassword: true });
       setFeedback({ type: 'success', text: `Senha de "${displayName(target)}" redefinida. O usuário deverá trocá-la no próximo acesso.` });
     } catch (error) {
@@ -172,7 +175,7 @@ export default function SettingsUsersPage() {
                         </div>
                         <div className="flex gap-2">
                           <button type="submit" disabled={busy} className="rounded-md bg-primary-600 px-3 py-1 text-xs font-medium text-white hover:bg-primary-700 disabled:opacity-50">Salvar senha</button>
-                          <button type="button" className={actionClass} onClick={() => setResetId(null)}>Cancelar</button>
+                          <button type="button" className={actionClass} onClick={closeReset}>Cancelar</button>
                         </div>
                       </form>
                     )}
