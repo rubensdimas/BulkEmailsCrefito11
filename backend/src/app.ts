@@ -109,7 +109,8 @@ const startServer = async (): Promise<Server> => {
   try {
     const { initializeDatabase, getConfigService } = await import('./services/databaseService');
     await initializeDatabase();
-    await getConfigService().importFromEnvironment();
+    const imported = await getConfigService().importFromEnvironment();
+    console.log(`[Settings] import_environment mailgrid=${imported.mailgrid} oidc=${imported.oidc}`);
   } catch {
     console.error('Database configuration initialization failed');
     throw new Error('Database configuration initialization failed');

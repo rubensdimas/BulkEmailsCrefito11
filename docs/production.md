@@ -156,15 +156,14 @@ administradores) e ficam na tabela `configurations`, com segredos criptografados
 
 No primeiro start da nova versão, se o banco não tiver a configuração, o backend copia
 uma única vez os valores atuais de `MAILGRID_*` e `OIDC_*` (incluindo os Docker secrets).
-O backend não emite log de sucesso da importação. Confirme que o start não falhou (a
-falha aparece como `Database configuration initialization failed`) e valide o resultado
-na tela:
+Confirme a importação pela linha de log (`mailgrid=true`/`oidc=true` indica que a seção foi
+importada neste start; `false` indica que o banco já tinha a configuração):
 
 ```bash
-docker service logs --since 10m bulkmail_backend | grep 'Database configuration initialization failed'
+docker service logs --since 10m bulkmail_backend | grep '\[Settings\] import_environment'
 ```
 
-A saída deve ser vazia.
+Uma falha aparece como `Database configuration initialization failed`.
 
 Depois, entre como administrador e confira **Configurações → E-mail** e
 **Configurações → Login intranet** (use **Testar**). A partir daí, alterações feitas no
@@ -189,12 +188,28 @@ Depois, entre como administrador e confira **Configurações → E-mail** e
   aparecem como Operador. Mudanças incompatíveis na configuração OIDC (por exemplo, de
   issuer) exigem novo login e não transferem o perfil entre issuers.
 
+### Verificação pós-deploy
+
+1. Importação confirmada pela linha `[Settings] import_environment` (acima); em
+   **Configurações → E-mail** e **Configurações → Login intranet**, use **Testar**.
+2. Uma sessão OIDC aberta antes do deploy continua funcionando enquanto a configuração
+   permanecer inalterada (o usuário aparece como Operador).
+3. `npm run user:admin` recusa desativar ou rebaixar o último administrador ativo.
+4. Depois que um administrador redefine a senha de um usuário local, a sessão antiga
+   desse usuário é rejeitada e ele precisa trocar a senha ao entrar.
+5. Alterar o issuer exige novo login, e o perfil não é transferido para a nova identidade.
+6. A importação não gravou segredos vazios: os secret files estavam legíveis (confira
+   pelo teste **Testar**, sem imprimir os valores).
+7. Entre pela intranet numa janela anônima (Operador, sem o link Configurações), promova
+   pelo admin e recarregue; crie um usuário local de teste, confirme a troca obrigatória
+   de senha e desative-o.
+
 ### Falha ao ler secret file
 
 Se a importação ou o carregamento falhar por causa de um secret file ausente ou ilegível,
 a importação é atômica: nada é gravado e o start falha com
 `Database configuration initialization failed`. Corrija o secret (sem imprimir seu valor),
-reinicie o serviço e confira novamente o start e as telas de Configurações. A importação
+reinicie o serviço e confira novamente a linha `[Settings] import_environment` e as telas de Configurações. A importação
 só preenche seções ausentes e nunca sobrescreve valores já existentes no banco.
 
 ### Retirada das variáveis antigas (follow-up)

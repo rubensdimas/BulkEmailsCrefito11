@@ -12,7 +12,7 @@
 
 ## Andamento salvo para retomada — 2026-10-10
 
-Registro documental do estado consultado, sem continuar a implementação. Branch `feat/4.2-settings-admin`; HEAD observado `39d944215c75c57416301b9aac72fd57b9964a9a`. Antes de retomar, conferir `git status`, `git log` e o ledger para identificar alterações posteriores a este registro.
+Resumo atual: as 10 tasks estão implementadas; Tasks 1–9 aprovadas por task e Task 10 em revisão. Branch `feat/4.2-settings-admin`. Conferir `git status` e `git log` antes de retomar.
 
 | Task | Estado | Commits / revisão |
 |---|---|---|
@@ -25,15 +25,15 @@ Registro documental do estado consultado, sem continuar a implementação. Branc
 | 7 — Navegação e senha no frontend | Concluída e aprovada | `39d9442`, `9cb496c` |
 | 8 — Layout, usuários e e-mail | Concluída e aprovada | `ac69437`, `b8ebadd` |
 | 9 — Tela OIDC | Concluída e aprovada | `53e8c56`, `17584c7` |
-| 10 — Deploy, runbook e gates | Concluída e aprovada | commit `docs: settings in database runbook and optional OIDC env` |
+| 10 — Deploy, runbook e gates | Implementada; em revisão | `e5aa76c`, correção `fix: post-deploy checklist and settings import log` |
 
 **Próxima ação:** revisão final da branch e handoff ao @qa/@devops.
 
-**Evidências históricas verificadas nos relatórios:** Task 6: 393 testes backend, 19 integrações PostgreSQL e 17 verificações HTTP no app real passaram; lint, typecheck e build passaram. Task 7, antes da correção pendente: 40/40 testes de navegador e repetição auth 21/21 passaram, com lint/build aprovados. Esses resultados não certificam a correção ainda pendente nem a story completa. A revisão encontrou a corrida apesar dos testes anteriores passarem.
+**Evidências:** gates completos da Task 10 (backend tsc/lint/build/jest, integrações PG/Redis, frontend lint/build, Playwright 64/64, compose) estão na seção Completion Notes da story. Provider OIDC real, deploy e CodeRabbit (não instalado) não foram verificados.
 
 **Ambiente para retomar:** PostgreSQL descartável `bulkmail-sdd-it-pg`, `127.0.0.1:55432`; Redis descartável `bulkmail-sdd-it-redis`, `127.0.0.1:56379`. Verificar disponibilidade antes de usar e evitar os serviços de desenvolvimento nas portas 5432/6379. Para Playwright: `PLAYWRIGHT_BASE_URL=http://127.0.0.1:5175`, `PLAYWRIGHT_AUTH_BASE_URL=http://127.0.0.1:5174`, `VITE_AUTH_ENABLED=false`, `VITE_API_URL=/api`; o servidor auth sobrescreve o flag para true. A porta 5173 pertence ao frontend Docker e interferiu no baseline. Acessos localhost/Docker/Git podem exigir escalada conforme as permissões vigentes.
 
-**Registros de apoio:** `.superpowers/sdd/2026-10-10-settings-admin/progress.md`, briefs e relatórios `task-N-report.md`, reviews e re-reviews no mesmo diretório. Esses arquivos são ignorados pelo Git; este checkpoint e a story guardam o resumo persistente. Para a pendência atual, ler `task-7-review.md` e o relatório/fix report da Task 7. CodeRabbit não está instalado; provider OIDC real e deploy não foram validados. Há artefatos gerados de navegador no working tree; não commitá-los como implementação. Nenhum push foi realizado.
+**Registros de apoio:** `.superpowers/sdd/2026-10-10-settings-admin/progress.md`, briefs e relatórios `task-N-report.md`, reviews e re-reviews no mesmo diretório. Esses arquivos são ignorados pelo Git; este checkpoint e a story guardam o resumo persistente. CodeRabbit não está instalado; provider OIDC real e deploy não foram validados. Não commitar artefatos gerados de navegador. Nenhum push foi realizado.
 
 ## Global Constraints
 
@@ -63,7 +63,7 @@ Prioridade QA: issuer + sub (Task 1), snapshot e binding legado (Tasks 3–4), �
 
 ## Decisões após revisão QA (2026-10-10)
 
-Esta revisão substitui os corpos de implementação anteriores por contratos e testes. Ler as decisões complementares junto com Interfaces antes de executar cada task. A revisão documental original antecedeu a implementação. A story agora está InProgress; consultar o checkpoint acima para tarefas aprovadas e pendências.
+Esta revisão substitui os corpos de implementação anteriores por contratos e testes. Ler as decisões complementares junto com Interfaces antes de executar cada task. A revisão documental original antecedeu a implementação. A story está InReview; consultar o checkpoint acima para o estado das tasks e pendências.
 
 - Identidade OIDC: `(issuer, sub)`, sem unir contas por e-mail. Um issuer diferente cria outra conta `operator`, preservando perfis/situação da identidade original.
 - Login, callback, refresh e logout usam um snapshot por operação. Uma configuração alterada não pode enviar segredos ou tokens antigos a endpoints novos.
@@ -2274,7 +2274,7 @@ uma única vez os valores atuais de `MAILGRID_*` e `OIDC_*` (incluindo os Docker
 Confirme a importação:
 
 ```bash
-rtk docker service logs --since 10m bulkmail_backend | grep 'settings.import_environment'
+rtk docker service logs --since 10m bulkmail_backend | grep '\[Settings\] import_environment'
 ```
 
 Depois, entre como administrador e confira **Configurações → E-mail** e
@@ -2343,7 +2343,7 @@ rtk git commit -m "docs: settings in database runbook and optional OIDC env [Sto
 
 - [ ] **Step 6: Post-deploy checklist (executado pelo usuário)**
 
-1. `./scripts/production/deploy.sh`; conferir o log `settings.import_environment`.
+1. `./scripts/production/deploy.sh`; conferir a linha de log `[Settings] import_environment mailgrid=<bool> oidc=<bool>`.
 2. Entrar com o admin local; abrir **Configurações → E-mail** e **Login intranet**; usar **Testar**.
 3. Entrar pela intranet numa janela anônima: deve aparecer como Operador, sem o link Configurações; promover pelo admin e recarregar.
 4. Criar um usuário local de teste, entrar com ele, confirmar a troca obrigatória de senha e depois desativá-lo.
