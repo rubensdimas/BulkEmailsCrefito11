@@ -75,7 +75,6 @@ services:
       - ./backend/src:/app/src
       - ./backend/knexfile.ts:/app/knexfile.ts:ro
       - ./backend/tsconfig.json:/app/tsconfig.json:ro
-      - ./backend/package.json:/app/package.json:ro
       - ./backend/uploads:/app/uploads:rw
       - ./assets:/assets:ro
       - ./.secrets:/run/secrets/oidc:ro
@@ -139,7 +138,6 @@ services:
       - ./backend/src:/app/src
       - ./backend/knexfile.ts:/app/knexfile.ts:ro
       - ./backend/tsconfig.json:/app/tsconfig.json:ro
-      - ./backend/package.json:/app/package.json:ro
       - ./backend/uploads:/app/uploads:rw
       - ./assets:/assets:ro
     networks:

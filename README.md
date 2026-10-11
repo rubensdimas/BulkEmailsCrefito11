@@ -71,6 +71,16 @@ As dependências locais são fornecidas pela imagem Docker a partir do
 alterar dependências, basta repetir o comando acima; os volumes do PostgreSQL
 e Redis permanecem preservados.
 
+O `backend/package.json` não é montado nos containers: ele vem da imagem.
+Depois de alterá-lo (scripts ou dependências), reconstrua com
+`docker compose up -d --build backend worker`.
+
+Se `npm run` dentro do container falhar com `ENOENT` em `/app/knexfile.ts` ou
+`/app/tsconfig.json` após um `git pull` ou troca de branch, recrie os
+containers com `docker compose up -d --force-recreate backend worker`: esses
+arquivos são montados individualmente e o mount perde a referência quando o
+arquivo é substituído no host.
+
 `docker compose down -v` apaga os dados locais e não deve ser usado em produção.
 
 Para o SPI local da intranet, `OIDC_ISSUER` permanece em
