@@ -13,6 +13,8 @@ export interface MailgridReportEntryInput {
   delivery_host: string | null;
   message_id: string | null;
   assunto: string | null;
+  /** Remote SMTP reply for bounces; null for accepted rows. */
+  erro: string | null;
   event_at: Date;
   sent_at: Date | null;
   raw: Record<string, unknown>;

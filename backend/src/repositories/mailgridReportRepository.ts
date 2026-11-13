@@ -11,7 +11,7 @@ const INSERT_CHUNK_SIZE = 500;
 const STALE_RUNNING_HOURS = 6;
 const ENTRY_COLUMNS = [
   'id', 'msgid', 'email_de', 'email_para', 'status', 'tipo_status', 'sender', 'sender_ip', 'sender_host', 'size',
-  'delivery_ip', 'delivery_host', 'message_id', 'assunto', 'event_at', 'sent_at', 'collected_at',
+  'delivery_ip', 'delivery_host', 'message_id', 'assunto', 'erro', 'event_at', 'sent_at', 'collected_at',
 ];
 
 /** Escapes LIKE wildcards so user input always matches literally. */

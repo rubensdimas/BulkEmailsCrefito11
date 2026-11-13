@@ -74,7 +74,7 @@ export const parseReportRows = (body: unknown): { entries: MailgridReportEntryIn
       msgid, email_para: emailPara, email_de: text(row.email_de), status: text(row.status),
       tipo_status: text(row.tipo_status) ?? '', sender: text(row.sender), sender_ip: text(row.sender_ip),
       sender_host: text(row.sender_host), size: text(row.size), delivery_ip: text(row.delivery_ip),
-      delivery_host: text(row.delivery_host), message_id: text(row.message_id), assunto: text(row.assunto),
+      delivery_host: text(row.delivery_host), message_id: text(row.message_id), assunto: text(row.assunto), erro: text(row.erro),
       event_at: eventAt, sent_at: parseSaoPauloDateTime(String(row.data_envio ?? ''), String(row.hora_envio ?? '')),
       raw: row,
     });
