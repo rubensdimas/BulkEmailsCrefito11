@@ -40,6 +40,15 @@ describe('mailgridReportClient', () => {
     });
   });
 
+  it('keeps the SMTP error text of bounces and null for accepted rows', () => {
+    const bounce = { ...realRow, tipo_status: 'Hard Bounce', status: 'Erro na entrega',
+      erro: 'SMTP error from remote mail server after RCPT TO:<pessoa@example.com>: 550-5.1.1 The email account does not exist' };
+    const { entries } = parseReportRows([bounce, realRow, { ...bounce, msgid: 'b2', erro: '  ' }]);
+    expect(entries[0].erro).toBe(bounce.erro);
+    expect(entries[1].erro).toBeNull();
+    expect(entries[2].erro).toBeNull();
+  });
+
   it('23:30 local becomes next-day 02:30Z', () => {
     expect(parseSaoPauloDateTime('11/11/2026', '23:30:00')).toEqual(new Date('2026-11-12T02:30:00.000Z'));
     expect(parseSaoPauloDateTime('31/02/2026', '10:00:00')).toBeNull();

@@ -33,11 +33,12 @@ describe('mailgridReportQueue', () => {
     expect(queue.add).not.toHaveBeenCalled();
   });
 
-  it('backfillWindows covers exactly 90 days in 13 contiguous blocks', () => {
-    const now = new Date('2026-11-12T12:00:00Z');
+  it('backfillWindows starts at São Paulo midnight of today minus 89 days in at most 13 contiguous blocks', () => {
+    // 00:19 on 13/11 in São Paulo: the API already rejects any dataini of 15/08.
+    const now = new Date('2026-11-13T03:19:00Z');
     const windows = backfillWindows(now);
-    expect(windows).toHaveLength(13);
-    expect(windows[0].start).toEqual(new Date(now.getTime() - 90 * DAY));
+    expect(windows.length).toBeLessThanOrEqual(13);
+    expect(windows[0].start).toEqual(new Date('2026-08-16T03:00:00Z'));
     expect(windows[windows.length - 1].end).toEqual(now);
     windows.forEach((block, index) => {
       expect(block.end.getTime() - block.start.getTime()).toBeLessThanOrEqual(7 * DAY);

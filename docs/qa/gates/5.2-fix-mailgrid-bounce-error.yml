@@ -1,0 +1,57 @@
+schema: 1
+story: "5.2"
+story_title: "Mensagem de erro dos bounces e início da carga inicial"
+gate: PASS
+status_reason: "Os 5 ACs estão implementados e cobertos por testes unitários, de integração (migration real no Postgres) e e2e; todos os quality_gate_tools e a integração passam. Restam só observações de severidade baixa."
+reviewer: "Quinn (Test Architect)"
+updated: "2026-11-13T12:00:00-03:00"
+quality_score: 94
+top_issues:
+  - id: "REQ-001"
+    severity: low
+    finding: "A migration em produção (preenchimento dos 457 bounces a partir de raw) e uma carga inicial real com o novo início (hoje − 89, 00:00 BRT) não foram verificadas contra a API; o comportamento foi validado por teste de integração e pelo caso real de 13/11 (codigo 215 para 15/08)."
+    suggested_action: "Após o deploy, conferir SELECT count(*) FROM mailgrid_report_entries WHERE erro IS NOT NULL (esperado ~457) e, na próxima carga inicial, que o primeiro bloco não volta com codigo 215."
+  - id: "REL-001"
+    severity: low
+    finding: "Pequenas divergências: a migration usa BTRIM (só espaços) e o parser usa String.trim (todo whitespace), então um erro só com tabs/quebras viraria texto na migration e nulo no parser; o title da linha na tabela mostra os '\\n' literais (o card os converte); o fuso fixo -03:00 depende de o Brasil seguir sem horário de verão."
+    suggested_action: "Aceitável como está; se o horário de verão voltar, trocar o offset fixo por cálculo com America/Sao_Paulo."
+  - id: "TEST-001"
+    severity: low
+    finding: "CodeRabbit continua não instalado. Ruído de proxy ECONNREFUSED no log do Playwright (74 ocorrências, sem falha), já registrado no gate 5.1."
+    suggested_action: "Mesmo encaminhamento do gate 5.1."
+waiver:
+  active: false
+evidence:
+  tests_reviewed: 571
+  risks_identified: 3
+  trace:
+    ac_covered: [1, 2, 3, 4, 5]
+    ac_gaps: []
+    ac_evidence:
+      "1": "Migration 20261113000000 (ADD COLUMN erro TEXT + UPDATE com NULLIF(BTRIM(raw->>'erro'),'') e raw \\? 'erro'); parser text(row.erro); teste unitário (bounce, Aceita, só espaços) e integração (migration preenche bounce, vazio vira nulo, query devolve erro)."
+      "2": "ReportDetail: seção 'Mensagem de erro' só com entry.erro, \\n literal vira quebra; e2e verifica presença no bounce e ausência na linha Aceita."
+      "3": "ReportsPage: <p title=erro class=truncate> abaixo do selo; e2e por getByTitle."
+      "4": "reportRoutes: erro: csvSafe(row.erro); teste confere header 'erro' e neutralização de '-550...' com apóstrofo."
+      "5": "backfillWindows: início em meia-noite BRT de hoje − 89, blocos ≤ 7 dias contíguos, fim = now, ≤ 13 blocos (89 dias + fração < 91 dias); teste com 13/11 00:19 BRT → início 2026-08-16T03:00Z."
+  commands_rerun_by_qa:
+    - "backend: npx tsc --noEmit OK; npm run lint OK; npm test 463 passed / 36 skipped (54 suites)"
+    - "backend: POSTGRES_PORT=5432 npm run test:integration 36/36 (5 suites; Postgres e Redis de dev)"
+    - "frontend: npm run lint OK; npm run build OK (aviso de chunk > 500 kB pré-existente); Playwright auth-chromium + chromium 72/72"
+nfr_validation:
+  security:
+    status: PASS
+    notes: "erro entra no CSV via csvSafe (testado); na UI é renderizado como texto pelo React (sem HTML); rotas mantêm a autenticação da 5.1. O texto SMTP pode conter o e-mail do destinatário, já exposto nas demais colunas."
+  performance:
+    status: PASS
+    notes: "Coluna TEXT nula sem índice (sem filtro por erro, fora de escopo); UPDATE da migration percorre a tabela uma vez (volume atual pequeno)."
+  reliability:
+    status: PASS
+    notes: "Migration idempotente no resultado e com down; carga inicial deixa de pedir o dia já fora da retenção."
+  maintainability:
+    status: PASS
+    notes: "Mudança mínima seguindo os padrões da 5.1 (ENTRY_COLUMNS, text(), csvSafe); comentários explicam o porquê do -89 e do escape do ?."
+recommendations:
+  immediate: []
+  future:
+    - action: "Após o deploy, conferir o preenchimento de erro nos bounces arquivados e o primeiro bloco da próxima carga inicial."
+      refs: ["backend/src/migrations/20261113000000_add_mailgrid_report_erro.ts", "backend/src/queue/mailgridReportQueue.ts"]

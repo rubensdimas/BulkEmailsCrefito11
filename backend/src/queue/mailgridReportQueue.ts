@@ -10,7 +10,9 @@ import { MailgridReportSettings, getMailgridReportSettings } from '../services/m
 export const MAILGRID_REPORT_QUEUE_NAME = 'mailgrid-report';
 export const DAILY_JOB_ID = 'mailgrid-report-daily';
 const DAY_MS = 24 * 60 * 60 * 1000;
-const BACKFILL_DAYS = 90;
+// The API counts its 90-day retention by calendar date, so the oldest accepted dataini is today - 89.
+const BACKFILL_DAYS = 89;
+const SAO_PAULO_OFFSET_MS = -3 * 60 * 60 * 1000;
 const BACKFILL_BLOCK_DAYS = 7;
 const JOB_RETENTION = { removeOnComplete: 100, removeOnFail: 100 };
 
@@ -67,9 +69,12 @@ export const enqueueManualRun = async (triggeredBy: string, target: ReportQueue 
   await target.add({ kind: 'manual', triggeredBy }, JOB_RETENTION);
 };
 
+/** São Paulo midnight of (today - 89) until now, in contiguous blocks of at most 7 days. */
 export const backfillWindows = (now: Date): Array<{ start: Date; end: Date }> => {
   const windows: Array<{ start: Date; end: Date }> = [];
-  for (let start = now.getTime() - BACKFILL_DAYS * DAY_MS; start < now.getTime(); start += BACKFILL_BLOCK_DAYS * DAY_MS) {
+  const localNow = now.getTime() + SAO_PAULO_OFFSET_MS;
+  const firstStart = Math.floor(localNow / DAY_MS) * DAY_MS - BACKFILL_DAYS * DAY_MS - SAO_PAULO_OFFSET_MS;
+  for (let start = firstStart; start < now.getTime(); start += BACKFILL_BLOCK_DAYS * DAY_MS) {
     windows.push({ start: new Date(start), end: new Date(Math.min(start + BACKFILL_BLOCK_DAYS * DAY_MS, now.getTime())) });
   }
   return windows;

@@ -46,6 +46,12 @@ export function ReportDetail({ entry, onClose }: { entry: MailgridReportEntry | 
               </svg>
             </button>
           </div>
+          {entry.erro && (
+            <section aria-labelledby="report-detail-error" className="mt-4 rounded-lg border border-red-200 bg-red-50 p-4">
+              <h3 id="report-detail-error" className="text-sm font-semibold text-red-900">Mensagem de erro</h3>
+              <p className="mt-1 whitespace-pre-line font-mono text-xs leading-relaxed text-red-900 [overflow-wrap:anywhere]">{entry.erro.replace(/\\n/g, '\n')}</p>
+            </section>
+          )}
           <dl className="mt-4 grid grid-cols-1 gap-x-6 gap-y-3 text-sm sm:grid-cols-[max-content_1fr]">
             {FIELDS.map((field) => (
               <div key={field.label} className="contents">

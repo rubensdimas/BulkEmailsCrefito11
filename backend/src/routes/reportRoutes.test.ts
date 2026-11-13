@@ -22,7 +22,7 @@ const row = {
   id: '1', msgid: 'm1', email_de: 'from@example.com', email_para: 'to@example.com', status: 'Entregue com sucesso',
   tipo_status: 'Aceita', sender: null, sender_ip: '10.0.0.1', sender_host: 'prd-crefito-8', size: '7 KB',
   delivery_ip: '10.0.0.2', delivery_host: 'mx.example.com', message_id: 'mid', assunto: '=cmd()',
-  event_at: new Date('2026-11-12T02:30:00Z'), sent_at: null, collected_at: new Date(),
+  event_at: new Date('2026-11-12T02:30:00Z'), sent_at: null, collected_at: new Date(), erro: '-550 5.1.1 no such user',
 };
 
 const repository = (total = 120) => ({
@@ -76,6 +76,8 @@ describe('report routes', () => {
     expect(csv.split('\n')[0]).toContain('data_hora,remetente,destinatario,assunto,resultado');
     expect(csv).toContain('11/11/2026 23:30:00');
     expect(csv).toContain("'=cmd()");
+    expect(csv.split('\n')[0].split(',')).toContain('erro');
+    expect(csv).toContain("'-550 5.1.1 no such user");
   });
 
   it('GET /sender-hosts lists known hosts', async () => {

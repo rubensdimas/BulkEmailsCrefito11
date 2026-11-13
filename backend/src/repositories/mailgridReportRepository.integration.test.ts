@@ -1,6 +1,7 @@
 import knex, { Knex } from 'knex';
 import { MailgridReportRepository } from './mailgridReportRepository';
 import { up as createMailgridReports } from '../migrations/20261112000000_create_mailgrid_reports';
+import { up as addMailgridReportErro } from '../migrations/20261113000000_add_mailgrid_report_erro';
 import type { MailgridReportEntryInput } from '../models/MailgridReport';
 
 const describeDatabase = process.env.RUN_DATABASE_INTEGRATION === 'true' ? describe : describe.skip;
@@ -10,7 +11,7 @@ const entry = (overrides: Partial<MailgridReportEntryInput>): MailgridReportEntr
   tipo_status: 'Aceita', sender: 'from@example.com', sender_ip: '10.0.0.1', sender_host: 'prd-crefito-8',
   size: '7 KB', delivery_ip: '10.0.0.2', delivery_host: 'mx.example.com', message_id: 'mid@example.com',
   assunto: 'Assunto', event_at: new Date('2026-11-11T13:00:00Z'), sent_at: new Date('2026-11-11T12:59:59Z'),
-  raw: { msgid: 'msg-1' }, ...overrides,
+  raw: { msgid: 'msg-1' }, erro: null, ...overrides,
 });
 
 describeDatabase('MailgridReportRepository PostgreSQL integration', () => {
@@ -40,6 +41,7 @@ describeDatabase('MailgridReportRepository PostgreSQL integration', () => {
       await transaction.raw('CREATE SCHEMA ??', [schema]);
       await transaction.raw('SET LOCAL search_path TO ??, public', [schema]);
       await createMailgridReports(transaction);
+      await addMailgridReportErro(transaction);
       try { await run(new MailgridReportRepository(transaction)); }
       finally { await transaction.raw('DROP SCHEMA ?? CASCADE', [schema]); }
     });
@@ -101,6 +103,25 @@ describeDatabase('MailgridReportRepository PostgreSQL integration', () => {
       await repository.finishRun(network.id, { status: 'failed', fetched: 0, inserted: 0, skipped: 0, error_code: 'request_failed' });
       await repository.createRun({ type: 'manual', ...window });
       await expect(repository.latestConclusiveRun()).resolves.toMatchObject({ id: authFailed.id, error_code: 'auth_failed' });
+    });
+  });
+
+  it('erro migration fills existing bounces from raw and query returns erro', async () => {
+    const schema = `mailgrid_it_erro_${suffix}`;
+    await database.transaction(async (transaction) => {
+      await transaction.raw('CREATE SCHEMA ??', [schema]);
+      await transaction.raw('SET LOCAL search_path TO ??, public', [schema]);
+      try {
+        await createMailgridReports(transaction);
+        await transaction('mailgrid_report_entries').insert([
+          { msgid: 'b', email_para: 'x@y.com', tipo_status: 'Hard Bounce', event_at: new Date('2026-11-11T13:00:00Z'), raw: JSON.stringify({ erro: '550 5.1.1 user unknown' }) },
+          { msgid: 'a', email_para: 'x@y.com', tipo_status: 'Aceita', event_at: new Date('2026-11-11T13:00:00Z'), raw: JSON.stringify({ erro: '' }) },
+        ]);
+        await addMailgridReportErro(transaction);
+        const repository = new MailgridReportRepository(transaction);
+        const { rows } = await repository.query({ from: new Date('2026-11-11T00:00:00Z'), to: new Date('2026-11-12T00:00:00Z'), page: 1, pageSize: 50 });
+        expect(Object.fromEntries(rows.map((row) => [row.msgid, row.erro]))).toEqual({ b: '550 5.1.1 user unknown', a: null });
+      } finally { await transaction.raw('DROP SCHEMA ?? CASCADE', [schema]); }
     });
   });
 

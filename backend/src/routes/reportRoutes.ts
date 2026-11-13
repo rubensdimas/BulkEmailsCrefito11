@@ -59,7 +59,7 @@ export const createReportRouter = (repository: () => ReportRepository = getMailg
         assunto: csvSafe(row.assunto), resultado: csvSafe(row.tipo_status), status: csvSafe(row.status),
         servidor_origem: csvSafe(row.sender_host), ip_origem: csvSafe(row.sender_ip),
         servidor_destino: csvSafe(row.delivery_host), ip_destino: csvSafe(row.delivery_ip), tamanho: csvSafe(row.size),
-        msgid: csvSafe(row.msgid), message_id: csvSafe(row.message_id),
+        msgid: csvSafe(row.msgid), message_id: csvSafe(row.message_id), erro: csvSafe(row.erro),
       });
     }
     csv.end();

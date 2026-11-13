@@ -450,6 +450,8 @@ export interface MailgridReportEntry {
   delivery_host: string | null;
   message_id: string | null;
   assunto: string | null;
+  /** Remote SMTP reply for soft/hard bounces; null for accepted sends. */
+  erro: string | null;
   event_at: string;
   sent_at: string | null;
   collected_at: string;

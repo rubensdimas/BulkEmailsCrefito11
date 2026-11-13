@@ -9,7 +9,7 @@ const entry = (overrides: Record<string, unknown> = {}) => ({
   status: 'Entregue com sucesso', tipo_status: 'Aceita', sender: 'isencao@example.com', sender_ip: '20.206.67.134',
   sender_host: 'prd-crefito-8', size: '7.29 KB', delivery_ip: '74.125.197.27', delivery_host: 'gmail-smtp-in.l.google.com',
   message_id: 'abc@example.com', assunto: 'Status - Isenção CREFITO', event_at: '2026-11-11T13:58:28.000Z',
-  sent_at: '2026-11-11T13:58:27.000Z', collected_at: '2026-11-12T06:00:00.000Z', ...overrides,
+  sent_at: '2026-11-11T13:58:27.000Z', collected_at: '2026-11-12T06:00:00.000Z', erro: null, ...overrides,
 });
 
 const mockSession = async (page: Page, session: Record<string, unknown>, tokenState = 'configured') => {
@@ -125,6 +125,26 @@ test.describe('Relatórios Mailgrid', () => {
     await expect(dialog.getByText('gmail-smtp-in.l.google.com')).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(dialog).toBeHidden();
+  });
+
+  test('bounce error message shows in the table and in the detail card', async ({ page }) => {
+    const errorText = 'SMTP error from remote mail server after RCPT TO:<pessoa@example.com>: 550-5.1.1 The email account that you tried to reach does not exist.';
+    await mockSession(page, operator);
+    await page.route(/\/api\/reports(\?.*)?$/, (route: Route) => route.fulfill(json({
+      success: true, data: [entry({ tipo_status: 'Hard Bounce', status: 'Erro na entrega', erro: errorText }), entry({ id: '2', email_para: 'ok@example.com' })],
+      pagination: { total: 2, page: 1, pageSize: 50, pages: 1 },
+    })));
+    await page.goto('/reports');
+    const preview = page.getByTitle(errorText);
+    await expect(preview).toBeVisible();
+    await expect(page.getByTitle(/SMTP error/)).toHaveCount(1);
+    await page.getByRole('button', { name: /Ver detalhes do envio para pessoa@example.com/ }).click();
+    const dialog = page.getByRole('dialog', { name: 'Detalhes do envio' });
+    await expect(dialog.getByRole('heading', { name: 'Mensagem de erro' })).toBeVisible();
+    await expect(dialog.getByText(errorText)).toBeVisible();
+    await page.keyboard.press('Escape');
+    await page.getByRole('button', { name: /Ver detalhes do envio para ok@example.com/ }).click();
+    await expect(dialog.getByRole('heading', { name: 'Mensagem de erro' })).toHaveCount(0);
   });
 
   test('Exportar CSV link carries current filters', async ({ page }) => {
