@@ -125,6 +125,30 @@ describeDatabase('MailgridReportRepository PostgreSQL integration', () => {
     });
   });
 
+  it('purgeScheduledRuns removes only old successful scheduled runs and listRuns can hide empty scheduled runs', async () => {
+    await inSchema('purge', async (repository) => {
+      const window = { window_start: new Date('2026-10-01T00:00:00Z'), window_end: new Date('2026-10-02T00:00:00Z'), triggered_by: null };
+      const make = async (type: 'scheduled' | 'manual', status: 'success' | 'failed', inserted: number, daysAgo: number) => {
+        const run = await repository.createRun({ type, ...window });
+        await repository.finishRun(run.id, { status, fetched: inserted, inserted, skipped: 0, ...(status === 'failed' ? { error_code: 'request_failed' as const } : {}) });
+        await repository.db('mailgrid_report_runs').where({ id: run.id }).update({ started_at: new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000) });
+        return run.id;
+      };
+      const oldOk = await make('scheduled', 'success', 2, 31);
+      const oldFailed = await make('scheduled', 'failed', 0, 31);
+      const oldManual = await make('manual', 'success', 0, 31);
+      const recentEmpty = await make('scheduled', 'success', 0, 1);
+      const recentNew = await make('scheduled', 'success', 4, 1);
+      await expect(repository.purgeScheduledRuns(30)).resolves.toBe(1);
+      const ids = (await repository.listRuns(50)).map((run) => run.id);
+      expect(ids).not.toContain(oldOk);
+      expect(ids).toEqual(expect.arrayContaining([oldFailed, oldManual, recentEmpty, recentNew]));
+      const visible = (await repository.listRuns(50, { hideEmptyScheduled: true })).map((run) => run.id);
+      expect(visible).not.toContain(recentEmpty);
+      expect(visible).toEqual(expect.arrayContaining([oldFailed, oldManual, recentNew]));
+    });
+  });
+
   it('hasRunningBackfill is true only while a backfill run is running', async () => {
     await inSchema('backfill', async (repository) => {
       await expect(repository.hasRunningBackfill()).resolves.toBe(false);

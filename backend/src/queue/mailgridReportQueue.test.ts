@@ -18,7 +18,7 @@ const fakeQueue = (repeatables: Array<{ key: string }> = []) => ({
 describe('mailgridReportQueue', () => {
   it("applyMailgridReportSchedule removes previous repeatables and adds cron '30 4 * * *' tz America/Sao_Paulo with fixed jobId", async () => {
     const queue = fakeQueue([{ key: 'old-1' }, { key: 'old-2' }]);
-    await applyMailgridReportSchedule({ enabled: true, time: '04:30', windowHours: 24 }, queue as never);
+    await applyMailgridReportSchedule({ enabled: true, mode: 'daily', intervalMinutes: 5, time: '04:30', windowHours: 24 }, queue as never);
     expect(queue.removeRepeatableByKey.mock.calls).toEqual([['old-1'], ['old-2']]);
     expect(queue.add).toHaveBeenCalledWith({ kind: 'scheduled' }, {
       jobId: DAILY_JOB_ID, repeat: { cron: '30 4 * * *', tz: 'America/Sao_Paulo' },
@@ -26,9 +26,18 @@ describe('mailgridReportQueue', () => {
     });
   });
 
+  it.each([[5, '*/5 * * * *'], [15, '*/15 * * * *'], [60, '0 * * * *']])(
+    'applyMailgridReportSchedule interval %i min uses cron %s', async (intervalMinutes, cron) => {
+      const queue = fakeQueue();
+      await applyMailgridReportSchedule({ enabled: true, mode: 'interval', time: '03:00', intervalMinutes, windowHours: 2 }, queue as never);
+      expect(queue.add).toHaveBeenCalledWith({ kind: 'scheduled' }, expect.objectContaining({
+        jobId: DAILY_JOB_ID, repeat: { cron, tz: 'America/Sao_Paulo' },
+      }));
+    });
+
   it('applyMailgridReportSchedule with enabled=false only removes', async () => {
     const queue = fakeQueue([{ key: 'old-1' }]);
-    await applyMailgridReportSchedule({ enabled: false, time: '03:00', windowHours: 48 }, queue as never);
+    await applyMailgridReportSchedule({ enabled: false, mode: 'daily', intervalMinutes: 5, time: '03:00', windowHours: 48 }, queue as never);
     expect(queue.removeRepeatableByKey).toHaveBeenCalledWith('old-1');
     expect(queue.add).not.toHaveBeenCalled();
   });
@@ -83,19 +92,21 @@ describe('mailgridReportQueue', () => {
 
   it('processMailgridReportJob scheduled uses windowHours from settings', async () => {
     const collect = jest.fn().mockResolvedValue('success');
+    const purgeScheduledRuns = jest.fn().mockResolvedValue(3);
     const now = new Date('2026-11-12T06:00:00Z');
     await processMailgridReportJob({ data: { kind: 'scheduled' } }, {
-      collect, now: () => now, settings: async () => ({ enabled: true, time: '03:00', windowHours: 24 }),
+      collect, now: () => now, settings: async () => ({ enabled: true, mode: 'daily', intervalMinutes: 5, time: '03:00', windowHours: 24 }), purgeScheduledRuns,
     });
     expect(collect).toHaveBeenCalledWith({
       type: 'scheduled', start: new Date('2026-11-11T06:00:00Z'), end: now, triggeredBy: null,
     });
+    expect(purgeScheduledRuns).toHaveBeenCalledWith(30);
   });
 
   it('processMailgridReportJob backfill uses the job window and run id', async () => {
     const collect = jest.fn().mockResolvedValue('success');
     await processMailgridReportJob({ data: { kind: 'backfill', runId: 'r', start: '2026-08-14T12:00:00.000Z', end: '2026-08-21T12:00:00.000Z' } },
-      { collect, now: () => new Date(), settings: jest.fn() });
+      { collect, now: () => new Date(), settings: jest.fn(), purgeScheduledRuns: jest.fn() });
     expect(collect).toHaveBeenCalledWith({
       type: 'backfill', start: new Date('2026-08-14T12:00:00Z'), end: new Date('2026-08-21T12:00:00Z'), triggeredBy: null, runId: 'r',
     });

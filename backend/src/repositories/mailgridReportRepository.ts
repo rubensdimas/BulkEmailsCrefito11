@@ -55,9 +55,16 @@ export class MailgridReportRepository {
     return inserted;
   }
 
-  async listRuns(limit: number): Promise<MailgridReportRun[]> {
-    const rows = await this.db(RUNS).orderBy('started_at', 'desc').limit(limit);
-    return rows.map(normalizeRun);
+  async listRuns(limit: number, options: { hideEmptyScheduled?: boolean } = {}): Promise<MailgridReportRun[]> {
+    const query = this.db(RUNS).orderBy('started_at', 'desc').limit(limit);
+    if (options.hideEmptyScheduled) query.whereNot((empty) => empty.where({ type: 'scheduled', status: 'success', inserted: 0 }));
+    return (await query).map(normalizeRun);
+  }
+
+  /** Deletes successful scheduled runs older than `days`; manual, backfill and failed runs are kept. */
+  async purgeScheduledRuns(days: number): Promise<number> {
+    return this.db(RUNS).where({ type: 'scheduled', status: 'success' })
+      .andWhere('started_at', '<', this.db.raw('NOW() - make_interval(days => ?)', [days])).delete();
   }
 
   async latestRun(): Promise<MailgridReportRun | null> {

@@ -6,6 +6,8 @@ import {
   runMailgridReportNow,
   startMailgridBackfill,
   updateMailgridReportSettings,
+  MAILGRID_REPORT_INTERVALS,
+  type MailgridReportMode,
   type MailgridReportRun,
   type MailgridReportSettings,
   type MailgridTokenState,
@@ -23,6 +25,8 @@ const RUN_STATUS: Record<MailgridReportRun['status'], { text: string; className:
   success: { text: 'Sucesso', className: 'bg-green-50 text-green-800 ring-green-600/20' },
   failed: { text: 'Falhou', className: 'bg-red-50 text-red-800 ring-red-600/20' },
 };
+// Each mode suggests its own lookback: a daily run covers two days, a frequent one a couple of hours.
+const DEFAULT_WINDOW: Record<MailgridReportMode, number> = { daily: 48, interval: 2 };
 const BACKFILL_CONFIRMATION = 'Isso vai buscar os últimos 90 dias na API Mailgrid em 13 blocos. Continuar?';
 
 const badge = 'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset';
@@ -39,7 +43,8 @@ const duration = (run: MailgridReportRun): string => {
 type Feedback = { type: 'success' | 'error'; text: string } | null;
 
 export default function SettingsMailgridReportsPage() {
-  const [settings, setSettings] = useState<MailgridReportSettings>({ enabled: true, time: '03:00', windowHours: 48 });
+  const [settings, setSettings] = useState<MailgridReportSettings>({ enabled: true, mode: 'daily', time: '03:00', intervalMinutes: 5, windowHours: 48 });
+  const [hideEmptyScheduled, setHideEmptyScheduled] = useState(true);
   const [tokenState, setTokenState] = useState<MailgridTokenState | null>(null);
   const [runs, setRuns] = useState<MailgridReportRun[]>([]);
   const [loading, setLoading] = useState(true);
@@ -47,8 +52,8 @@ export default function SettingsMailgridReportsPage() {
   const [feedback, setFeedback] = useState<Feedback>(null);
 
   const loadRuns = useCallback(async () => {
-    try { setRuns(await listMailgridReportRuns()); } catch { /* history is secondary; the form stays usable */ }
-  }, []);
+    try { setRuns(await listMailgridReportRuns(hideEmptyScheduled)); } catch { /* history is secondary; the form stays usable */ }
+  }, [hideEmptyScheduled]);
 
   useEffect(() => {
     let active = true;
@@ -56,9 +61,12 @@ export default function SettingsMailgridReportsPage() {
       .then(({ tokenState: state, ...value }) => { if (active) { setSettings(value); setTokenState(state); } })
       .catch((error) => { if (active) setFeedback({ type: 'error', text: apiErrorMessage(error, 'Não foi possível carregar a configuração.') }); })
       .finally(() => { if (active) setLoading(false); });
-    void loadRuns();
     return () => { active = false; };
-  }, [loadRuns]);
+  }, []);
+
+  useEffect(() => { void loadRuns(); }, [loadRuns]);
+
+  const changeMode = (mode: MailgridReportMode) => setSettings({ ...settings, mode, windowHours: DEFAULT_WINDOW[mode] });
 
   const save = async (event: FormEvent) => {
     event.preventDefault();
@@ -124,7 +132,7 @@ export default function SettingsMailgridReportsPage() {
       </section>
 
       <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm" aria-labelledby="mailgrid-schedule-title">
-        <h3 id="mailgrid-schedule-title" className="text-base font-semibold text-gray-900">Rotina diária</h3>
+        <h3 id="mailgrid-schedule-title" className="text-base font-semibold text-gray-900">Rotina automática</h3>
         <form onSubmit={save} className="mt-4 space-y-4">
           <label className="flex items-center gap-3 text-sm font-medium text-gray-700">
             <input type="checkbox" checked={settings.enabled}
@@ -132,13 +140,31 @@ export default function SettingsMailgridReportsPage() {
               className="h-5 w-5 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
             Rotina ativa
           </label>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <div>
-              <label htmlFor="mailgrid-time" className="mb-1 block text-sm font-medium text-gray-700">Horário diário</label>
-              <input id="mailgrid-time" type="time" required value={settings.time}
-                onChange={(event) => setSettings({ ...settings, time: event.target.value })} className={inputClass} aria-describedby="mailgrid-time-help" />
-              <p id="mailgrid-time-help" className="mt-1 text-xs text-gray-500">Horário de Brasília.</p>
+              <label htmlFor="mailgrid-mode" className="mb-1 block text-sm font-medium text-gray-700">Frequência</label>
+              <select id="mailgrid-mode" value={settings.mode} onChange={(event) => changeMode(event.target.value as MailgridReportMode)} className={inputClass}>
+                <option value="daily">Diária</option>
+                <option value="interval">A cada N minutos</option>
+              </select>
             </div>
+            {settings.mode === 'daily' ? (
+              <div>
+                <label htmlFor="mailgrid-time" className="mb-1 block text-sm font-medium text-gray-700">Horário diário</label>
+                <input id="mailgrid-time" type="time" required value={settings.time}
+                  onChange={(event) => setSettings({ ...settings, time: event.target.value })} className={inputClass} aria-describedby="mailgrid-time-help" />
+                <p id="mailgrid-time-help" className="mt-1 text-xs text-gray-500">Horário de Brasília.</p>
+              </div>
+            ) : (
+              <div>
+                <label htmlFor="mailgrid-interval" className="mb-1 block text-sm font-medium text-gray-700">Intervalo</label>
+                <select id="mailgrid-interval" value={settings.intervalMinutes} aria-describedby="mailgrid-interval-help"
+                  onChange={(event) => setSettings({ ...settings, intervalMinutes: Number(event.target.value) })} className={inputClass}>
+                  {MAILGRID_REPORT_INTERVALS.map((minutes) => <option key={minutes} value={minutes}>{minutes} minutos</option>)}
+                </select>
+                <p id="mailgrid-interval-help" className="mt-1 text-xs text-gray-500">Execuções em horários fixos (:00, :05…).</p>
+              </div>
+            )}
             <div>
               <label htmlFor="mailgrid-window" className="mb-1 block text-sm font-medium text-gray-700">Janela de busca (horas)</label>
               <input id="mailgrid-window" type="number" min={1} max={168} step={1} required value={settings.windowHours}
@@ -154,14 +180,19 @@ export default function SettingsMailgridReportsPage() {
 
       <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm" aria-labelledby="mailgrid-actions-title">
         <h3 id="mailgrid-actions-title" className="text-base font-semibold text-gray-900">Execuções</h3>
-        <p className="mt-1 text-sm text-gray-600">"Executar agora" busca a janela configurada. A carga inicial busca os últimos 90 dias, uma única vez por vez.</p>
+        <p className="mt-1 text-sm text-gray-600">Execuções agendadas com sucesso e mais antigas que 30 dias são apagadas automaticamente. "Executar agora" busca a janela configurada. A carga inicial busca os últimos 90 dias, uma única vez por vez.</p>
         <div className="mt-4 flex flex-wrap gap-3">
           <button type="button" className={secondaryButton} onClick={runNow} disabled={busy !== null}>{busy === 'run' ? 'Enviando…' : 'Executar agora'}</button>
           <button type="button" className={secondaryButton} onClick={backfill} disabled={busy !== null}>{busy === 'backfill' ? 'Enviando…' : 'Carga inicial (90 dias)'}</button>
           <button type="button" className={secondaryButton} onClick={() => void loadRuns()} disabled={busy !== null}>Atualizar histórico</button>
         </div>
 
-        <div className="mt-6 overflow-x-auto rounded-lg border border-gray-200">
+        <label className="mt-6 flex items-center gap-2 text-sm text-gray-700">
+          <input type="checkbox" checked={hideEmptyScheduled} onChange={(event) => setHideEmptyScheduled(event.target.checked)}
+            className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+          Ocultar execuções agendadas sem novidade
+        </label>
+        <div className="mt-3 overflow-x-auto rounded-lg border border-gray-200">
           <table className="min-w-full divide-y divide-gray-200 text-left text-sm">
             <caption className="sr-only">Últimas 50 execuções</caption>
             <thead className="bg-gray-50 text-xs uppercase text-gray-500">

@@ -53,15 +53,22 @@ export const closeMailgridReportQueue = async (): Promise<void> => {
   }
 };
 
+const SCHEDULED_RUN_RETENTION_DAYS = 30;
+
+export const scheduleCron = (settings: MailgridReportSettings): string => {
+  if (settings.mode === 'interval') return settings.intervalMinutes === 60 ? '0 * * * *' : `*/${settings.intervalMinutes} * * * *`;
+  const [hours, minutes] = settings.time.split(':').map(Number);
+  return `${minutes} ${hours} * * *`;
+};
+
 /** Replaces the daily repeatable job; Redis keeps a single schedule shared by every replica. */
 export const applyMailgridReportSchedule = async (
   settings: MailgridReportSettings, target: ReportQueue = getMailgridReportQueue(),
 ): Promise<void> => {
   for (const repeatable of await target.getRepeatableJobs()) await target.removeRepeatableByKey(repeatable.key);
   if (!settings.enabled) return;
-  const [hours, minutes] = settings.time.split(':').map(Number);
   await target.add({ kind: 'scheduled' }, {
-    jobId: DAILY_JOB_ID, repeat: { cron: `${minutes} ${hours} * * *`, tz: 'America/Sao_Paulo' }, ...JOB_RETENTION,
+    jobId: DAILY_JOB_ID, repeat: { cron: scheduleCron(settings), tz: 'America/Sao_Paulo' }, ...JOB_RETENTION,
   });
 };
 
@@ -116,6 +123,7 @@ export const processMailgridReportJob = async (
   deps: {
     collect?: (input: CollectInput) => Promise<unknown>;
     settings?: () => Promise<MailgridReportSettings>;
+    purgeScheduledRuns?: (days: number) => Promise<unknown>;
     now?: () => Date;
   } = {},
 ): Promise<void> => {
@@ -132,4 +140,9 @@ export const processMailgridReportJob = async (
     type: data.kind, start: new Date(end.getTime() - windowHours * 60 * 60 * 1000), end,
     triggeredBy: data.kind === 'manual' ? data.triggeredBy : null,
   });
+  // Frequent schedules add ~288 runs a day; old successful ones carry no information worth keeping.
+  if (data.kind === 'scheduled') {
+    const purge = deps.purgeScheduledRuns ?? ((days: number) => getMailgridReportRepository().purgeScheduledRuns(days));
+    await purge(SCHEDULED_RUN_RETENTION_DAYS);
+  }
 };

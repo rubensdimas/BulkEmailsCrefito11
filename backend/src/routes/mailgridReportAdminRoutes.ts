@@ -29,7 +29,7 @@ export type MailgridTokenState = 'configured' | 'not_configured' | 'auth_failed'
 export interface MailgridReportAdminDeps {
   readToken: () => string | null;
   latestConclusiveRun: () => Promise<Pick<MailgridReportRun, 'status' | 'error_code'> | null>;
-  listRuns: (limit: number) => Promise<MailgridReportRun[]>;
+  listRuns: (limit: number, options: { hideEmptyScheduled: boolean }) => Promise<MailgridReportRun[]>;
   getSettings: () => Promise<MailgridReportSettings>;
   saveSettings: (input: unknown) => Promise<{ settings: MailgridReportSettings; changedFields: string[] }>;
   applySchedule: (settings: MailgridReportSettings) => Promise<void>;
@@ -43,7 +43,7 @@ const settingsRepository = () => new SystemConfigRepository(getDatabase());
 const defaultDeps = (): MailgridReportAdminDeps => ({
   readToken: readMailgridReportToken,
   latestConclusiveRun: () => getMailgridReportRepository().latestConclusiveRun(),
-  listRuns: (limit) => getMailgridReportRepository().listRuns(limit),
+  listRuns: (limit, options) => getMailgridReportRepository().listRuns(limit, options),
   getSettings: () => getMailgridReportSettings(settingsRepository()),
   saveSettings: (input) => saveMailgridReportSettings(settingsRepository(), input),
   applySchedule: (settings) => applyMailgridReportSchedule(settings),
@@ -114,8 +114,9 @@ export const createMailgridReportAdminRouter = (injected?: MailgridReportAdminDe
     response.status(202).json({ success: true, data: result });
   }));
 
-  router.get('/runs', handle(async (_request, response) => {
-    response.json({ success: true, data: await deps().listRuns(RUN_HISTORY_LIMIT) });
+  router.get('/runs', handle(async (request, response) => {
+    const hideEmptyScheduled = request.query?.hideEmptyScheduled === 'true';
+    response.json({ success: true, data: await deps().listRuns(RUN_HISTORY_LIMIT, { hideEmptyScheduled }) });
   }));
 
   return router;
