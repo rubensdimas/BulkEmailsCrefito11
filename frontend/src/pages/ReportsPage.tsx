@@ -112,10 +112,11 @@ export default function ReportsPage() {
                     <td className="max-w-[14rem] px-4 py-2.5 text-gray-700 [overflow-wrap:anywhere]">{entry.email_de ?? '—'}</td>
                     <td className="max-w-[14rem] px-4 py-2.5 text-gray-900 [overflow-wrap:anywhere]">{entry.email_para}</td>
                     <td className="max-w-[20rem] px-4 py-2.5 text-gray-700 [overflow-wrap:anywhere]">{entry.assunto ?? '—'}</td>
-                    <td className="whitespace-nowrap px-4 py-2.5">
-                      <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${RESULT_STYLE[entry.tipo_status] ?? 'bg-gray-50 text-gray-700 ring-gray-500/20'}`}>
+                    <td className="px-4 py-2.5">
+                      <span className={`inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${RESULT_STYLE[entry.tipo_status] ?? 'bg-gray-50 text-gray-700 ring-gray-500/20'}`}>
                         {entry.tipo_status || '—'}
                       </span>
+                      {entry.erro && <p title={entry.erro} className="mt-1 max-w-[16rem] truncate text-xs text-gray-600">{entry.erro}</p>}
                     </td>
                     <td className="whitespace-nowrap px-4 py-2.5 text-gray-600">{entry.sender_host ?? '—'}</td>
                     <td className="px-4 py-2.5 text-right">
