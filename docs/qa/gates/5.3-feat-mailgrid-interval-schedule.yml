@@ -1,0 +1,62 @@
+schema: 1
+story: "5.3"
+story_title: "Rotina Mailgrid a cada N minutos e \"Limpar filtros\" nos relatórios"
+gate: PASS
+status_reason: "Os 8 ACs estão implementados e cobertos por testes unitários, de integração (purge e filtro no Postgres real) e e2e; todos os quality_gate_tools e a integração passam. Restam só observações de severidade baixa sobre operação em produção."
+reviewer: "Quinn (Test Architect)"
+updated: "2026-11-13T13:00:00-03:00"
+quality_score: 94
+top_issues:
+  - id: "REL-001"
+    severity: low
+    finding: "Com cron */5 e process(1) uma execução que passe de 5 min faz os ticks seguintes esperarem na fila (sem sobreposição no mesmo worker; com várias réplicas do worker podem rodar em paralelo, mas a inserção é idempotente por onConflict). Uma carga inicial (13 blocos) na mesma fila também atrasa os agendados. A taxa de chamadas à API Mailgrid a cada 5 min não foi verificada contra limites do provedor."
+    suggested_action: "Após o deploy no modo por minutos, acompanhar a duração das execuções no histórico e eventuais respostas de limite da API; se a duração se aproximar do intervalo, subir o intervalo ou reduzir a janela."
+  - id: "REL-002"
+    severity: low
+    finding: "A limpeza roda depois do collect no mesmo job: se o DELETE falhar, o job fica 'failed' no Bull embora a execução esteja 'success' na tabela. Execuções 'scheduled' presas em 'running' (worker morto) não são limpas nem marcadas como perdidas (só backfill tem o corte de 6 h) — comportamento anterior, mais provável com 288 execuções/dia."
+    suggested_action: "Aceitável como está; se aparecerem runs 'running' antigas no histórico, estender o corte de stale para o tipo scheduled."
+  - id: "TEST-001"
+    severity: low
+    finding: "CodeRabbit continua não instalado. Ruído de proxy ECONNREFUSED no log do Playwright (74 ocorrências, sem falha), já registrado no gate 5.1. Execução real com cron */N no Redis/Bull não foi exercitada (só o cron gerado e o add com repeat)."
+    suggested_action: "Mesmo encaminhamento do gate 5.1; conferir após o deploy que getRepeatableJobs mostra um único repeatable com o cron esperado."
+waiver:
+  active: false
+evidence:
+  tests_reviewed: 579
+  risks_identified: 3
+  trace:
+    ac_covered: [1, 2, 3, 4, 5, 6, 7, 8]
+    ac_gaps: []
+    ac_evidence:
+      "1": "MailgridReportSettings ganha mode e intervalMinutes; validate usa mode ?? 'daily' e intervalMinutes ?? 5; teste de leitura de valor salvo sem mode → daily/5; UI troca horário por intervalo (um modo por vez); e2e."
+      "2": "scheduleCron: daily 'MM HH * * *', interval '*/N * * * *', 60 → '0 * * * *'; tz America/Sao_Paulo e DAILY_JOB_ID; PUT /settings chama applySchedule (remove repeatables e recria); testes it.each 5/15/60 e daily."
+      "3": "windowHours segue 1–168 nos dois modos; DEFAULT_WINDOW {daily: 48, interval: 2} aplicado em changeMode; e2e confere 2 h ao ir para interval e 48 h ao voltar."
+      "4": "intervalMinutes fora de [5,10,15,30,60] (7, 0, 120, '5') → invalid_settings field 'intervalMinutes'; mode inválido → field 'mode'; changedFields inclui mode e intervalMinutes (teste ['mode','intervalMinutes','windowHours'])."
+      "5": "purgeScheduledRuns(30) no fim de todo job scheduled: DELETE type=scheduled AND status=success AND started_at < NOW() - make_interval(days => ?) (bind seguro); integração confirma que só o scheduled/success de 31 dias some e failed, manual e recentes ficam; run_id ON DELETE SET NULL da 5.1."
+      "6": "listRuns(limit, {hideEmptyScheduled}) com NOT (scheduled AND success AND inserted=0) antes do LIMIT; rota lê query === 'true'; UI checkbox ligado por padrão; testes unitário da rota, integração e e2e (true por padrão, false ao desmarcar)."
+      "7": "Botão 'Limpar filtros' (type=button) ao lado de 'Filtrar' chama reset → initialFilters() novo (7 dias) + apply (page 1) e repõe o form; e2e a partir da página 2 confere campos vazios, checkbox desmarcado, servidor 'Todos' e query page=1 sem filtros."
+      "8": "title da linha usa erro.replace(/\\\\n/g, '\\n'); e2e confere quebra real no atributo title."
+  commands_rerun_by_qa:
+    - "backend: npx tsc --noEmit OK; npm run lint OK; npm test 467 passed / 37 skipped (54 suites)"
+    - "backend: POSTGRES_PORT=5432 npm run test:integration 37/37 (5 suites; Postgres e Redis de dev)"
+    - "frontend: npm run lint OK; npm run build OK (aviso de chunk > 500 kB pré-existente); Playwright auth-chromium + chromium 75/75 (playwright-report restaurado)"
+nfr_validation:
+  security:
+    status: PASS
+    notes: "Rotas seguem atrás de requireAdmin; intervalMinutes e mode validados por lista fechada; hideEmptyScheduled só aceita 'true' literal; make_interval com parâmetro bind (sem interpolação); nada novo renderizado como HTML."
+  performance:
+    status: PASS
+    notes: "No máximo ~288 execuções/dia × 30 dias ≈ 8,6 mil linhas em mailgrid_report_runs; índice started_at DESC existente atende listRuns, purge e latestConclusiveRun. DELETE por execução toca poucas linhas."
+  reliability:
+    status: PASS
+    notes: "Configuração antiga continua daily sem migration; latestConclusiveRun não é afetado pela limpeza (a execução atual é recente e nunca é apagada; falhas são mantidas); stale de backfill inalterado."
+  maintainability:
+    status: PASS
+    notes: "Mudança mínima nos padrões da 5.1 (deps injetáveis, scheduleCron isolado e testado, listas de intervalos espelhadas no frontend); comentários explicam o porquê da limpeza e do default daily."
+recommendations:
+  immediate: []
+  future:
+    - action: "Após o deploy, conferir um único repeatable com o cron esperado e acompanhar duração das execuções e respostas da API no modo por minutos."
+      refs: ["backend/src/queue/mailgridReportQueue.ts", "backend/src/queue/emailWorker.ts"]
+    - action: "Se surgirem runs 'scheduled' presas em 'running', estender o corte de stale (6 h) a esse tipo."
+      refs: ["backend/src/repositories/mailgridReportRepository.ts"]
