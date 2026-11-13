@@ -25,6 +25,7 @@ import {
 } from './middlewares/security';
 import userAdminRoutes from './routes/userAdminRoutes';
 import mailgridReportAdminRoutes from './routes/mailgridReportAdminRoutes';
+import reportRoutes from './routes/reportRoutes';
 import { requireAdmin, requireAuthentication, requirePasswordCurrent, requireTrustedOrigin } from './middlewares/authentication';
 import { assertSessionEncryptionKey } from './services/oidcService';
 import { getDatabase } from './config/database';
@@ -95,6 +96,7 @@ app.use('/api/upload', uploadLimiter, uploadRoutes);
 app.use('/api/send', sendLimiter, sendRoutes);
 app.use('/api/status', statusRoutes);
 app.use('/api/jobs', jobRoutes);
+app.use('/api/reports', reportRoutes);
 app.use('/api/config', requireAdmin, configLimiter, configRoutes);
 app.use('/api/admin/users', requireAdmin, configLimiter, userAdminRoutes);
 app.use('/api/admin/mailgrid-reports', requireAdmin, configLimiter, mailgridReportAdminRoutes);
