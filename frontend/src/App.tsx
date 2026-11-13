@@ -9,6 +9,8 @@ import SettingsLayout from './pages/settings/SettingsLayout';
 import SettingsUsersPage from './pages/settings/SettingsUsersPage';
 import SettingsEmailPage from './pages/settings/SettingsEmailPage';
 import SettingsOidcPage from './pages/settings/SettingsOidcPage';
+import SettingsMailgridReportsPage from './pages/settings/SettingsMailgridReportsPage';
+import ReportsPage from './pages/ReportsPage';
 import LoginPage from './pages/LoginPage';
 import { AuthGate, AuthProvider } from './components/Auth/AuthProvider';
 
@@ -23,6 +25,7 @@ function App() {
       <Route path="/" element={<HomePage />} />
       <Route path="/dashboard" element={<DashboardPage />} />
       <Route path="/status/:jobId" element={<StatusPage />} />
+      <Route path="/reports" element={<ReportsPage />} />
       <Route path="/account/password" element={<ChangePasswordPage />} />
       <Route element={<AdminRoute />}>
         <Route path="/settings" element={<SettingsLayout />}>
@@ -30,6 +33,7 @@ function App() {
           <Route path="users" element={<SettingsUsersPage />} />
           <Route path="email" element={<SettingsEmailPage />} />
           <Route path="oidc" element={<SettingsOidcPage />} />
+          <Route path="mailgrid-reports" element={<SettingsMailgridReportsPage />} />
         </Route>
       </Route>
     </Route>

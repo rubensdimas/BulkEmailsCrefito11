@@ -81,6 +81,7 @@ services:
       MAILGRID_SENDER: ${MAILGRID_SENDER:-noreply@bulkmail.com}
       MAILGRID_SENDER_NAME: ${MAILGRID_SENDER_NAME:-BulkMail Pro}
       MAILGRID_WEBHOOK_TOKEN_FILE: /run/secrets/mailgrid_webhook_token
+      TOKEN_AUTH_MAILGRID_FILE: /run/secrets/mailgrid_report_token
       CONFIG_ENCRYPTION_KEY_FILE: /run/secrets/config_encryption_key
       CREFITO11_LOGO_PATH: /assets/logos/CREFITO 11 - Marca - Neg 2 Completa.png
       CREFITO11_LOGO_URL: ${CREFITO11_LOGO_URL:?CREFITO11_LOGO_URL is required}
@@ -91,6 +92,7 @@ services:
       - redis_password
       - mailgrid_password
       - mailgrid_webhook_token
+      - mailgrid_report_token
       - config_encryption_key
       - oidc_client_secret
       - oidc_session_encryption_key
@@ -268,6 +270,9 @@ secrets:
   mailgrid_webhook_token:
     external: true
     name: bulkmail_mailgrid_webhook_token
+  mailgrid_report_token:
+    external: true
+    name: bulkmail_mailgrid_report_token
   config_encryption_key:
     external: true
     name: bulkmail_config_encryption_key

@@ -92,7 +92,7 @@ for volume_name in bulkmail_postgres_data bulkmail_redis_data bulkmail_backups; 
   }
 done
 
-for secret_name in bulkmail_postgres_password bulkmail_redis_password bulkmail_mailgrid_password bulkmail_mailgrid_webhook_token bulkmail_config_encryption_key bulkmail_oidc_client_secret bulkmail_oidc_session_encryption_key; do
+for secret_name in bulkmail_postgres_password bulkmail_redis_password bulkmail_mailgrid_password bulkmail_mailgrid_webhook_token bulkmail_mailgrid_report_token bulkmail_config_encryption_key bulkmail_oidc_client_secret bulkmail_oidc_session_encryption_key; do
   docker secret inspect "$secret_name" >/dev/null 2>&1 || {
     echo "Required Docker secret not found: $secret_name" >&2
     exit 1

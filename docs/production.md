@@ -232,6 +232,59 @@ Depois de validar a importação em produção, uma story seguinte remove de
 `bulkmail_mailgrid_webhook_token` e `bulkmail_oidc_client_secret`. Não remova
 `bulkmail_config_encryption_key` nem `bulkmail_oidc_session_encryption_key`.
 
+## Relatórios Mailgrid (Story 5.1)
+
+O worker coleta o relatório de envios da API Mailgrid (`https://api.mailgrid.net.br/report/`)
+para as tabelas `mailgrid_report_entries` e `mailgrid_report_runs`. A consulta fica em
+**Relatórios** (qualquer usuário logado), e a operação fica em **Configurações → Relatórios Mailgrid**
+(somente admin).
+
+### Token
+
+O token fica apenas no ambiente: `TOKEN_AUTH_MAILGRID` ou o secret file
+`TOKEN_AUTH_MAILGRID_FILE`. Em produção, ele é o Docker secret `bulkmail_mailgrid_report_token`
+(arquivo local `deploy/secrets/mailgrid_report_token`). O bootstrap cria o secret com o
+placeholder `change-me-mailgrid-report-token` quando o arquivo não existe. Com o placeholder,
+a coleta não chama a API, e os administradores veem o aviso
+"Token do relatório Mailgrid inválido ou não configurado".
+
+**Antes do primeiro deploy desta versão** em um ambiente que já existe, crie o secret, porque o
+`deploy.sh` recusa o deploy sem ele:
+
+```bash
+printf '%s' 'TOKEN_REAL' > deploy/secrets/mailgrid_report_token
+chmod 600 deploy/secrets/mailgrid_report_token
+docker secret create bulkmail_mailgrid_report_token deploy/secrets/mailgrid_report_token
+```
+
+Para trocar o token depois, siga **Rotacionar secrets**, usando `bulkmail_mailgrid_report_token`.
+
+### Rotina e carga inicial
+
+- **Rotina diária:** o padrão é ativa, às 03:00 (horário de Brasília), buscando as últimas 48 h.
+  Altere em **Configurações → Relatórios Mailgrid**. O worker reagenda o job na hora (fila Bull
+  `mailgrid-report`, um único agendamento no Redis para todas as réplicas). Na subida, o worker
+  reaplica o agendamento salvo.
+- **Carga inicial (90 dias, o limite da API):** clique em **Carga inicial (90 dias)** ou rode, no
+  container do backend, o comando abaixo. São 13 blocos de 7 dias, cada um com uma execução própria
+  no histórico. Enquanto houver um bloco em andamento, uma nova carga responde `409`.
+
+  ```bash
+  docker exec -it $(docker ps -q -f name=bulkmail_backend | head -1) npm run mailgrid:backfill
+  ```
+
+- **Execuções repetidas não duplicam registros:** a chave única é `(msgid, email_para, event_at, tipo_status)`.
+
+### Aviso de token e falhas
+
+O aviso aparece para os admins quando o token está ausente, ainda é o placeholder ou a execução
+mais recente falhou por autenticação (a API responde HTTP 200 com `codigo 207`). Ele some depois
+da próxima execução com sucesso. Os erros ficam no histórico da tela, sem o token:
+
+```bash
+docker service logs --since 1h bulkmail_worker | grep -i 'mailgrid report'
+```
+
 ## Usuários locais (login por senha)
 
 Administradores também criam usuários, definem senhas, alteram perfis e desativam

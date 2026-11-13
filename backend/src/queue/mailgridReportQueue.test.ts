@@ -1,0 +1,102 @@
+import {
+  DAILY_JOB_ID,
+  MailgridReportConflictError,
+  applyMailgridReportSchedule,
+  backfillWindows,
+  enqueueBackfill,
+  processMailgridReportJob,
+} from './mailgridReportQueue';
+
+const DAY = 24 * 60 * 60 * 1000;
+
+const fakeQueue = (repeatables: Array<{ key: string }> = []) => ({
+  getRepeatableJobs: jest.fn().mockResolvedValue(repeatables),
+  removeRepeatableByKey: jest.fn().mockResolvedValue(undefined),
+  add: jest.fn().mockResolvedValue(undefined),
+});
+
+describe('mailgridReportQueue', () => {
+  it("applyMailgridReportSchedule removes previous repeatables and adds cron '30 4 * * *' tz America/Sao_Paulo with fixed jobId", async () => {
+    const queue = fakeQueue([{ key: 'old-1' }, { key: 'old-2' }]);
+    await applyMailgridReportSchedule({ enabled: true, time: '04:30', windowHours: 24 }, queue as never);
+    expect(queue.removeRepeatableByKey.mock.calls).toEqual([['old-1'], ['old-2']]);
+    expect(queue.add).toHaveBeenCalledWith({ kind: 'scheduled' }, {
+      jobId: DAILY_JOB_ID, repeat: { cron: '30 4 * * *', tz: 'America/Sao_Paulo' },
+      removeOnComplete: 100, removeOnFail: 100,
+    });
+  });
+
+  it('applyMailgridReportSchedule with enabled=false only removes', async () => {
+    const queue = fakeQueue([{ key: 'old-1' }]);
+    await applyMailgridReportSchedule({ enabled: false, time: '03:00', windowHours: 48 }, queue as never);
+    expect(queue.removeRepeatableByKey).toHaveBeenCalledWith('old-1');
+    expect(queue.add).not.toHaveBeenCalled();
+  });
+
+  it('backfillWindows covers exactly 90 days in 13 contiguous blocks', () => {
+    const now = new Date('2026-11-12T12:00:00Z');
+    const windows = backfillWindows(now);
+    expect(windows).toHaveLength(13);
+    expect(windows[0].start).toEqual(new Date(now.getTime() - 90 * DAY));
+    expect(windows[windows.length - 1].end).toEqual(now);
+    windows.forEach((block, index) => {
+      expect(block.end.getTime() - block.start.getTime()).toBeLessThanOrEqual(7 * DAY);
+      if (index > 0) expect(block.start).toEqual(windows[index - 1].end);
+    });
+  });
+
+  it('enqueueBackfill throws backfill_running and enqueues nothing when a backfill is running', async () => {
+    const queue = fakeQueue();
+    const repository = { hasRunningBackfill: jest.fn().mockResolvedValue(true), createRun: jest.fn(), finishRun: jest.fn() };
+    await expect(enqueueBackfill('admin', { queue: queue as never, repository })).rejects.toBeInstanceOf(MailgridReportConflictError);
+    expect(repository.createRun).not.toHaveBeenCalled();
+    expect(queue.add).not.toHaveBeenCalled();
+  });
+
+  it('enqueueBackfill creates one backfill run and job per block', async () => {
+    const queue = fakeQueue();
+    let id = 0;
+    const repository = {
+      hasRunningBackfill: jest.fn().mockResolvedValue(false),
+      createRun: jest.fn().mockImplementation(async () => ({ id: `run-${++id}` })),
+      finishRun: jest.fn(),
+    };
+    await expect(enqueueBackfill('admin', { queue: queue as never, repository, now: new Date('2026-11-12T12:00:00Z') }))
+      .resolves.toEqual({ blocks: 13 });
+    expect(repository.createRun).toHaveBeenCalledTimes(13);
+    expect(repository.createRun.mock.calls[0][0]).toMatchObject({ type: 'backfill', triggered_by: 'admin' });
+    expect(queue.add.mock.calls[0][0]).toMatchObject({ kind: 'backfill', runId: 'run-1' });
+  });
+
+  it('enqueueBackfill marks the run failed when the job cannot be enqueued', async () => {
+    const queue = fakeQueue();
+    queue.add.mockRejectedValueOnce(new Error('Redis down'));
+    const repository = {
+      hasRunningBackfill: jest.fn().mockResolvedValue(false),
+      createRun: jest.fn().mockResolvedValue({ id: 'run-1' }),
+      finishRun: jest.fn().mockResolvedValue(undefined),
+    };
+    await expect(enqueueBackfill('admin', { queue: queue as never, repository })).rejects.toThrow('Redis down');
+    expect(repository.finishRun).toHaveBeenCalledWith('run-1', expect.objectContaining({ status: 'failed', error_code: 'request_failed' }));
+  });
+
+  it('processMailgridReportJob scheduled uses windowHours from settings', async () => {
+    const collect = jest.fn().mockResolvedValue('success');
+    const now = new Date('2026-11-12T06:00:00Z');
+    await processMailgridReportJob({ data: { kind: 'scheduled' } }, {
+      collect, now: () => now, settings: async () => ({ enabled: true, time: '03:00', windowHours: 24 }),
+    });
+    expect(collect).toHaveBeenCalledWith({
+      type: 'scheduled', start: new Date('2026-11-11T06:00:00Z'), end: now, triggeredBy: null,
+    });
+  });
+
+  it('processMailgridReportJob backfill uses the job window and run id', async () => {
+    const collect = jest.fn().mockResolvedValue('success');
+    await processMailgridReportJob({ data: { kind: 'backfill', runId: 'r', start: '2026-08-14T12:00:00.000Z', end: '2026-08-21T12:00:00.000Z' } },
+      { collect, now: () => new Date(), settings: jest.fn() });
+    expect(collect).toHaveBeenCalledWith({
+      type: 'backfill', start: new Date('2026-08-14T12:00:00Z'), end: new Date('2026-08-21T12:00:00Z'), triggeredBy: null, runId: 'r',
+    });
+  });
+});

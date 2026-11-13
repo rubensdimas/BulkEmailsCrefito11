@@ -3,7 +3,7 @@
  * Express server with file upload and email processing
  * Updated with database initialization
  */
-import express, { Express, Request, Response } from 'express';
+import express, { Express, Request, RequestHandler, Response } from 'express';
 import path from 'path';
 import { Server } from 'http';
 
@@ -24,6 +24,8 @@ import {
   webhookLimiter,
 } from './middlewares/security';
 import userAdminRoutes from './routes/userAdminRoutes';
+import mailgridReportAdminRoutes from './routes/mailgridReportAdminRoutes';
+import reportRoutes from './routes/reportRoutes';
 import { requireAdmin, requireAuthentication, requirePasswordCurrent, requireTrustedOrigin } from './middlewares/authentication';
 import { assertSessionEncryptionKey } from './services/oidcService';
 import { getDatabase } from './config/database';
@@ -94,8 +96,13 @@ app.use('/api/upload', uploadLimiter, uploadRoutes);
 app.use('/api/send', sendLimiter, sendRoutes);
 app.use('/api/status', statusRoutes);
 app.use('/api/jobs', jobRoutes);
+app.use('/api/reports', reportRoutes);
 app.use('/api/config', requireAdmin, configLimiter, configRoutes);
 app.use('/api/admin/users', requireAdmin, configLimiter, userAdminRoutes);
+// The banner polls /status on every admin page view; keep it out of the shared settings rate limit.
+const unlessReportStatus: RequestHandler = (request, response, next) =>
+  (request.method === 'GET' && request.path === '/status' ? next() : configLimiter(request, response, next));
+app.use('/api/admin/mailgrid-reports', requireAdmin, unlessReportStatus, mailgridReportAdminRoutes);
 
 // Error handling
 app.use(httpErrorHandler);

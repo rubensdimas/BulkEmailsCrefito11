@@ -407,3 +407,120 @@ export const testOidcConfig = async (input: OidcConfigInput): Promise<string> =>
   const response = await api.post<{ success: boolean; message: string }>('/config/oidc/test', input);
   return response.data.message;
 };
+
+// Mailgrid reports (Story 5.1)
+export type MailgridTokenState = 'configured' | 'not_configured' | 'auth_failed';
+export type MailgridTipoStatus = 'Aceita' | 'Soft Bounce' | 'Hard Bounce';
+export const MAILGRID_TIPO_STATUS: MailgridTipoStatus[] = ['Aceita', 'Soft Bounce', 'Hard Bounce'];
+
+export interface MailgridReportSettings {
+  enabled: boolean;
+  time: string;
+  windowHours: number;
+}
+
+export interface MailgridReportRun {
+  id: string;
+  type: 'scheduled' | 'manual' | 'backfill';
+  window_start: string;
+  window_end: string;
+  status: 'running' | 'success' | 'failed';
+  fetched: number;
+  inserted: number;
+  skipped: number;
+  error_code: string | null;
+  error_message: string | null;
+  started_at: string;
+  finished_at: string | null;
+  triggered_by: string | null;
+}
+
+export interface MailgridReportEntry {
+  id: string;
+  msgid: string;
+  email_de: string | null;
+  email_para: string;
+  status: string | null;
+  tipo_status: string;
+  sender: string | null;
+  sender_ip: string | null;
+  sender_host: string | null;
+  size: string | null;
+  delivery_ip: string | null;
+  delivery_host: string | null;
+  message_id: string | null;
+  assunto: string | null;
+  event_at: string;
+  sent_at: string | null;
+  collected_at: string;
+}
+
+export interface ReportFilters {
+  from: string;
+  to: string;
+  recipient?: string;
+  sender?: string;
+  subject?: string;
+  deliveryHost?: string;
+  msgid?: string;
+  senderHost?: string;
+  tipoStatus?: MailgridTipoStatus[];
+}
+
+export interface ReportPage {
+  data: MailgridReportEntry[];
+  pagination: { total: number; page: number; pageSize: number; pages: number };
+}
+
+export const getMailgridReportStatus = async (): Promise<MailgridTokenState> => {
+  const response = await api.get<ConfigResponse<{ tokenState: MailgridTokenState }>>('/admin/mailgrid-reports/status');
+  return response.data.data.tokenState;
+};
+
+export const getMailgridReportSettings = async (): Promise<MailgridReportSettings & { tokenState: MailgridTokenState }> => {
+  const response = await api.get<ConfigResponse<MailgridReportSettings & { tokenState: MailgridTokenState }>>('/admin/mailgrid-reports/settings');
+  return response.data.data;
+};
+
+export const updateMailgridReportSettings = async (settings: MailgridReportSettings): Promise<MailgridReportSettings & { tokenState: MailgridTokenState }> => {
+  const response = await api.put<ConfigResponse<MailgridReportSettings & { tokenState: MailgridTokenState }>>('/admin/mailgrid-reports/settings', settings);
+  return response.data.data;
+};
+
+export const runMailgridReportNow = async (): Promise<void> => {
+  await api.post('/admin/mailgrid-reports/run');
+};
+
+export const startMailgridBackfill = async (): Promise<{ blocks: number }> => {
+  const response = await api.post<ConfigResponse<{ blocks: number }>>('/admin/mailgrid-reports/backfill');
+  return response.data.data;
+};
+
+export const listMailgridReportRuns = async (): Promise<MailgridReportRun[]> => {
+  const response = await api.get<ConfigResponse<MailgridReportRun[]>>('/admin/mailgrid-reports/runs');
+  return response.data.data;
+};
+
+export const reportFilterParams = (filters: ReportFilters): URLSearchParams => {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (Array.isArray(value)) { if (value.length) params.set(key, value.join(',')); }
+    else if (value) params.set(key, value);
+  }
+  return params;
+};
+
+export const searchReports = async (filters: ReportFilters, page: number): Promise<ReportPage> => {
+  const params = reportFilterParams(filters);
+  params.set('page', String(page));
+  const response = await api.get<{ success: boolean } & ReportPage>(`/reports?${params.toString()}`);
+  return { data: response.data.data, pagination: response.data.pagination };
+};
+
+export const getReportSenderHosts = async (): Promise<string[]> => {
+  const response = await api.get<ConfigResponse<string[]>>('/reports/sender-hosts');
+  return response.data.data;
+};
+
+export const reportExportUrl = (filters: ReportFilters): string =>
+  `${API_BASE_URL}/reports/export.csv?${reportFilterParams(filters).toString()}`;

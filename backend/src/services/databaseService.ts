@@ -24,11 +24,17 @@ import {
   createUserRepository,
 } from "../repositories/userRepository";
 
+import {
+  MailgridReportRepository,
+  createMailgridReportRepository,
+} from "../repositories/mailgridReportRepository";
+
 // Singleton instances
 let jobRepository: JobRepository | null = null;
 let emailLogRepository: EmailLogRepository | null = null;
 let configService: ConfigService | null = null;
 let userRepository: UserRepository | null = null;
+let mailgridReportRepository: MailgridReportRepository | null = null;
 
 /**
  * Initialize database and repositories
@@ -40,6 +46,7 @@ export const initializeDatabase = async (): Promise<void> => {
     emailLogRepository = createEmailLogRepository(db);
     configService = createConfigService(db);
     userRepository = createUserRepository(db);
+    mailgridReportRepository = createMailgridReportRepository(db);
     console.log("✅ Database and repositories initialized");
   } catch (error) {
     console.error("❌ Failed to initialize database:", error);
@@ -95,6 +102,15 @@ export const getUserRepository = (): UserRepository => {
   return userRepository;
 };
 
+export const getMailgridReportRepository = (): MailgridReportRepository => {
+  if (!mailgridReportRepository) {
+    throw new Error(
+      "Database not initialized. Call initializeDatabase() first.",
+    );
+  }
+  return mailgridReportRepository;
+};
+
 /**
  * Check if database is ready
  */
@@ -111,6 +127,7 @@ export const shutdownDatabase = async (): Promise<void> => {
   emailLogRepository = null;
   configService = null;
   userRepository = null;
+  mailgridReportRepository = null;
 };
 
 // Export for backward compatibility
