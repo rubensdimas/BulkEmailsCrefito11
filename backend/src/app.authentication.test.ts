@@ -113,6 +113,11 @@ describe('actual application authentication route mounting', () => {
     expect(response.body).toMatchObject({ success: true, data: expect.arrayContaining([expect.objectContaining({ id: 'admin' })]) });
     expect(JSON.stringify(response.body)).not.toMatch(/passwordHash|credentialVersion|oidcIssuer|oidcSub/);
   });
+  it('denies operators and allows admins on the mailgrid report admin mount', async () => {
+    expect((await request('/api/admin/mailgrid-reports/status', 'operator')).status).toBe(403);
+    expect((await request('/api/admin/mailgrid-reports/status')).status).toBe(401);
+  });
+
   it('allows actual password endpoint during forced change and clears the restriction', async () => {
     const response = await request('/api/auth/password', 'forced', 'POST', { currentPassword: 'current-password-123', newPassword: 'new-password-1234' });
     expect(response.status).toBe(200);
