@@ -25,8 +25,8 @@ const makeDeps = (overrides: Partial<MailgridReportAdminDeps> = {}): MailgridRep
   readToken: jest.fn().mockReturnValue('token'),
   latestConclusiveRun: jest.fn().mockResolvedValue(null),
   listRuns: jest.fn().mockResolvedValue([]),
-  getSettings: jest.fn().mockResolvedValue({ enabled: true, time: '03:00', windowHours: 48 }),
-  saveSettings: jest.fn().mockResolvedValue({ settings: { enabled: true, time: '04:30', windowHours: 24 }, changedFields: ['time', 'windowHours'] }),
+  getSettings: jest.fn().mockResolvedValue({ enabled: true, mode: 'daily', intervalMinutes: 5, time: '03:00', windowHours: 48 }),
+  saveSettings: jest.fn().mockResolvedValue({ settings: { enabled: true, mode: 'daily', intervalMinutes: 5, time: '04:30', windowHours: 24 }, changedFields: ['time', 'windowHours'] }),
   applySchedule: jest.fn().mockResolvedValue(undefined),
   enqueueManualRun: jest.fn().mockResolvedValue(undefined),
   enqueueBackfill: jest.fn().mockResolvedValue({ blocks: 13 }),
@@ -68,11 +68,11 @@ describe('mailgrid report admin routes', () => {
     const response = mockResponse();
     await handler(createMailgridReportAdminRouter(deps), 'put', '/settings')(
       adminRequest({ enabled: true, time: '04:30', windowHours: 24 }), response as unknown as Response, jest.fn());
-    expect(deps.applySchedule).toHaveBeenCalledWith({ enabled: true, time: '04:30', windowHours: 24 });
+    expect(deps.applySchedule).toHaveBeenCalledWith({ enabled: true, mode: 'daily', intervalMinutes: 5, time: '04:30', windowHours: 24 });
     expect(deps.audit).toHaveBeenCalledWith({
       actor: 'admin', action: 'mailgrid_reports.update_schedule', target: 'mailgrid_report_schedule', fields: ['time', 'windowHours'],
     });
-    expect(response.json).toHaveBeenCalledWith({ success: true, data: { enabled: true, time: '04:30', windowHours: 24, tokenState: 'configured' } });
+    expect(response.json).toHaveBeenCalledWith({ success: true, data: { enabled: true, mode: 'daily', intervalMinutes: 5, time: '04:30', windowHours: 24, tokenState: 'configured' } });
   });
 
   it('starts a manual run with 202 and audits it', async () => {
@@ -101,6 +101,9 @@ describe('mailgrid report admin routes', () => {
     expect(backfill.status).toHaveBeenCalledWith(202);
     expect(backfill.json).toHaveBeenCalledWith({ success: true, data: { blocks: 13 } });
     await handler(router, 'get', '/runs')(adminRequest(), mockResponse() as unknown as Response, jest.fn());
-    expect(deps.listRuns).toHaveBeenCalledWith(50);
+    expect(deps.listRuns).toHaveBeenCalledWith(50, { hideEmptyScheduled: false });
+    await handler(router, 'get', '/runs')({ ...adminRequest(), query: { hideEmptyScheduled: 'true' } } as unknown as Request,
+      mockResponse() as unknown as Response, jest.fn());
+    expect(deps.listRuns).toHaveBeenLastCalledWith(50, { hideEmptyScheduled: true });
   });
 });
