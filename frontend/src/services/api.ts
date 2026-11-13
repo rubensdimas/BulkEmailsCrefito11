@@ -413,9 +413,14 @@ export type MailgridTokenState = 'configured' | 'not_configured' | 'auth_failed'
 export type MailgridTipoStatus = 'Aceita' | 'Soft Bounce' | 'Hard Bounce';
 export const MAILGRID_TIPO_STATUS: MailgridTipoStatus[] = ['Aceita', 'Soft Bounce', 'Hard Bounce'];
 
+export type MailgridReportMode = 'daily' | 'interval';
+export const MAILGRID_REPORT_INTERVALS = [5, 10, 15, 30, 60] as const;
+
 export interface MailgridReportSettings {
   enabled: boolean;
+  mode: MailgridReportMode;
   time: string;
+  intervalMinutes: number;
   windowHours: number;
 }
 
@@ -498,8 +503,8 @@ export const startMailgridBackfill = async (): Promise<{ blocks: number }> => {
   return response.data.data;
 };
 
-export const listMailgridReportRuns = async (): Promise<MailgridReportRun[]> => {
-  const response = await api.get<ConfigResponse<MailgridReportRun[]>>('/admin/mailgrid-reports/runs');
+export const listMailgridReportRuns = async (hideEmptyScheduled = true): Promise<MailgridReportRun[]> => {
+  const response = await api.get<ConfigResponse<MailgridReportRun[]>>(`/admin/mailgrid-reports/runs?hideEmptyScheduled=${hideEmptyScheduled}`);
   return response.data.data;
 };
 

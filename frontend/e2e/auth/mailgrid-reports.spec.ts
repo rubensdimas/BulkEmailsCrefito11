@@ -14,8 +14,8 @@ const entry = (overrides: Record<string, unknown> = {}) => ({
 
 const mockSession = async (page: Page, session: Record<string, unknown>, tokenState = 'configured') => {
   const state = {
-    tokenState, settings: { enabled: true, time: '03:00', windowHours: 48 },
-    settingsBodies: [] as unknown[], reportQueries: [] as URLSearchParams[], backfillStatus: 202,
+    tokenState, settings: { enabled: true, mode: 'daily', time: '03:00', intervalMinutes: 5, windowHours: 48 },
+    settingsBodies: [] as unknown[], reportQueries: [] as URLSearchParams[], runQueries: [] as URLSearchParams[], backfillStatus: 202,
   };
   await page.route('**/api/auth/me', (route: Route) => route.fulfill(json({ success: true, data: session })));
   await page.route('**/api/auth/options', (route: Route) => route.fulfill(json({ success: true, data: { localLoginEnabled: true, oidcEnabled: false } })));
@@ -29,11 +29,14 @@ const mockSession = async (page: Page, session: Record<string, unknown>, tokenSt
     }
     await route.fulfill(json({ success: true, data: { ...state.settings, tokenState: state.tokenState } }));
   });
-  await page.route('**/api/admin/mailgrid-reports/runs', (route: Route) => route.fulfill(json({ success: true, data: [{
+  await page.route(/\/api\/admin\/mailgrid-reports\/runs(\?.*)?$/, (route: Route) => {
+    state.runQueries.push(new URL(route.request().url()).searchParams);
+    return route.fulfill(json({ success: true, data: [{
     id: 'r1', type: 'scheduled', window_start: '2026-11-10T06:00:00.000Z', window_end: '2026-11-12T06:00:00.000Z',
     status: 'success', fetched: 162, inserted: 160, skipped: 2, error_code: null, error_message: null,
     started_at: '2026-11-12T06:00:00.000Z', finished_at: '2026-11-12T06:00:02.000Z', triggered_by: null,
-  }] })));
+  }] }));
+  });
   await page.route('**/api/admin/mailgrid-reports/run', (route: Route) => route.fulfill(json({ success: true }, 202)));
   await page.route('**/api/admin/mailgrid-reports/backfill', (route: Route) => route.fulfill(state.backfillStatus === 409
     ? json({ success: false, error: 'backfill_running', message: 'Já existe uma carga inicial em andamento.' }, 409)
@@ -80,7 +83,32 @@ test.describe('Relatórios Mailgrid', () => {
     await page.getByLabel('Janela de busca (horas)').fill('24');
     await page.getByRole('button', { name: 'Salvar' }).click();
     await expect(page.getByText('Configuração salva.')).toBeVisible();
-    expect(state.settingsBodies).toEqual([{ enabled: true, time: '04:30', windowHours: 24 }]);
+    expect(state.settingsBodies).toEqual([{ enabled: true, mode: 'daily', time: '04:30', intervalMinutes: 5, windowHours: 24 }]);
+  });
+
+  test('interval mode every 5 minutes suggests a 2 hour window and saves mode and interval', async ({ page }) => {
+    const state = await mockSession(page, admin);
+    await page.goto('/settings/mailgrid-reports');
+    await page.getByLabel('Frequência').selectOption('interval');
+    await expect(page.getByLabel('Horário diário')).toHaveCount(0);
+    await expect(page.getByLabel('Intervalo')).toHaveValue('5');
+    await expect(page.getByLabel('Janela de busca (horas)')).toHaveValue('2');
+    await page.getByLabel('Intervalo').selectOption('15');
+    await page.getByRole('button', { name: 'Salvar' }).click();
+    await expect(page.getByText('Configuração salva.')).toBeVisible();
+    expect(state.settingsBodies).toEqual([{ enabled: true, mode: 'interval', time: '03:00', intervalMinutes: 15, windowHours: 2 }]);
+    await page.getByLabel('Frequência').selectOption('daily');
+    await expect(page.getByLabel('Janela de busca (horas)')).toHaveValue('48');
+  });
+
+  test('run history hides empty scheduled runs by default and can show them', async ({ page }) => {
+    const state = await mockSession(page, admin);
+    await page.goto('/settings/mailgrid-reports');
+    const toggle = page.getByLabel('Ocultar execuções agendadas sem novidade');
+    await expect(toggle).toBeChecked();
+    await expect.poll(() => state.runQueries.at(-1)?.get('hideEmptyScheduled')).toBe('true');
+    await toggle.uncheck();
+    await expect.poll(() => state.runQueries.at(-1)?.get('hideEmptyScheduled')).toBe('false');
   });
 
   test('backfill asks confirmation and shows conflict message on 409', async ({ page }) => {
@@ -115,6 +143,27 @@ test.describe('Relatórios Mailgrid', () => {
     await expect(page.getByText('Página 2 de 3')).toBeVisible();
   });
 
+  test('Limpar filtros resets every field and reloads page 1', async ({ page }) => {
+    const state = await mockSession(page, operator);
+    await page.goto('/reports');
+    await page.getByLabel('Destinatário').fill('pessoa@');
+    await page.getByRole('checkbox', { name: 'Hard Bounce' }).check();
+    await page.getByLabel('Servidor de origem').selectOption('prd-crefito-8');
+    await page.getByRole('button', { name: 'Filtrar' }).click();
+    await page.getByRole('button', { name: 'Próxima' }).click();
+    await expect(page.getByText('Página 2 de 3')).toBeVisible();
+    await page.getByRole('button', { name: 'Limpar filtros' }).click();
+    await expect(page.getByLabel('Destinatário')).toHaveValue('');
+    await expect(page.getByRole('checkbox', { name: 'Hard Bounce' })).not.toBeChecked();
+    await expect(page.getByLabel('Servidor de origem')).toHaveValue('');
+    await expect.poll(() => state.reportQueries.at(-1)?.get('page')).toBe('1');
+    const last = state.reportQueries.at(-1)!;
+    expect(last.get('recipient')).toBeNull();
+    expect(last.get('tipoStatus')).toBeNull();
+    expect(last.get('senderHost')).toBeNull();
+    expect(last.get('from')).toMatch(/-03:00$/);
+  });
+
   test('clicking a row opens detail with msgid and delivery_host', async ({ page }) => {
     await mockSession(page, operator);
     await page.goto('/reports');
@@ -129,15 +178,17 @@ test.describe('Relatórios Mailgrid', () => {
 
   test('bounce error message shows in the table and in the detail card', async ({ page }) => {
     const errorText = 'SMTP error from remote mail server after RCPT TO:<pessoa@example.com>: 550-5.1.1 The email account that you tried to reach does not exist.';
+    const softText = 'SMTP error from remote mail server after RCPT TO:<x@example.com>: 452-4.2.2 Please direct the\\n452-4.2.2 recipient to';
     await mockSession(page, operator);
     await page.route(/\/api\/reports(\?.*)?$/, (route: Route) => route.fulfill(json({
-      success: true, data: [entry({ tipo_status: 'Hard Bounce', status: 'Erro na entrega', erro: errorText }), entry({ id: '2', email_para: 'ok@example.com' })],
-      pagination: { total: 2, page: 1, pageSize: 50, pages: 1 },
+      success: true, data: [entry({ tipo_status: 'Hard Bounce', status: 'Erro na entrega', erro: errorText }), entry({ id: '2', email_para: 'ok@example.com' }), entry({ id: '3', email_para: 'x@example.com', tipo_status: 'Soft Bounce', erro: softText })],
+      pagination: { total: 3, page: 1, pageSize: 50, pages: 1 },
     })));
     await page.goto('/reports');
     const preview = page.getByTitle(errorText);
     await expect(preview).toBeVisible();
-    await expect(page.getByTitle(/SMTP error/)).toHaveCount(1);
+    await expect(page.getByTitle(/SMTP error/)).toHaveCount(2);
+    await expect(page.getByTitle(/Please direct the/)).toHaveAttribute('title', /Please direct the\n452-4\.2\.2 recipient/);
     await page.getByRole('button', { name: /Ver detalhes do envio para pessoa@example.com/ }).click();
     const dialog = page.getByRole('dialog', { name: 'Detalhes do envio' });
     await expect(dialog.getByRole('heading', { name: 'Mensagem de erro' })).toBeVisible();

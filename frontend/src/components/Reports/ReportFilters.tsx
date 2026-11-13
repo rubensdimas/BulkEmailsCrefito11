@@ -24,10 +24,12 @@ const TEXT_FIELDS: Array<{ key: 'recipient' | 'sender' | 'subject' | 'deliveryHo
   { key: 'msgid', label: 'msgid', placeholder: 'valor exato' },
 ];
 
-export function ReportFilters({ initial, senderHosts, onApply, busy }: {
+export function ReportFilters({ initial, senderHosts, onApply, onReset, busy }: {
   initial: ReportFilterForm;
   senderHosts: string[];
   onApply: (filters: ReportFilterForm) => void;
+  /** Returns fresh default filters (a new "last 7 days" window) after they were applied. */
+  onReset: () => ReportFilterForm;
   busy: boolean;
 }) {
   const [form, setForm] = useState<ReportFilterForm>(initial);
@@ -79,10 +81,16 @@ export function ReportFilters({ initial, senderHosts, onApply, busy }: {
             ))}
           </div>
         </fieldset>
-        <button type="submit" disabled={busy}
-          className="inline-flex min-h-[40px] items-center justify-center rounded-lg bg-primary-600 px-5 py-2 text-sm font-semibold text-white hover:bg-primary-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50">
-          Filtrar
-        </button>
+        <div className="flex flex-wrap gap-3">
+          <button type="button" disabled={busy} onClick={() => setForm(onReset())}
+            className="inline-flex min-h-[40px] items-center justify-center rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50">
+            Limpar filtros
+          </button>
+          <button type="submit" disabled={busy}
+            className="inline-flex min-h-[40px] items-center justify-center rounded-lg bg-primary-600 px-5 py-2 text-sm font-semibold text-white hover:bg-primary-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50">
+            Filtrar
+          </button>
+        </div>
       </div>
     </form>
   );

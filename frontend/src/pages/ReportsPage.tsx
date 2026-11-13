@@ -59,6 +59,7 @@ export default function ReportsPage() {
   }, [filters, page]);
 
   const apply = (form: ReportFilterForm) => { setFilters(toApiFilters(form)); setPage(1); };
+  const reset = (): ReportFilterForm => { const defaults = initialFilters(); apply(defaults); return defaults; };
   const pagination = result?.pagination;
   const tooManyRows = (pagination?.total ?? 0) > CSV_MAX_ROWS;
 
@@ -71,7 +72,7 @@ export default function ReportsPage() {
           <p className="mt-1 text-sm text-gray-600">Envios registrados pelo servidor SMTP Mailgrid, inclusive os feitos por outros sistemas. Horários de Brasília.</p>
         </div>
 
-        <ReportFilters initial={initial} senderHosts={senderHosts} onApply={apply} busy={loading} />
+        <ReportFilters initial={initial} senderHosts={senderHosts} onApply={apply} onReset={reset} busy={loading} />
 
         <section aria-labelledby="report-results-title" className="rounded-xl border border-gray-200 bg-white shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 px-4 py-3 sm:px-6">
@@ -116,7 +117,7 @@ export default function ReportsPage() {
                       <span className={`inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${RESULT_STYLE[entry.tipo_status] ?? 'bg-gray-50 text-gray-700 ring-gray-500/20'}`}>
                         {entry.tipo_status || '—'}
                       </span>
-                      {entry.erro && <p title={entry.erro} className="mt-1 max-w-[16rem] truncate text-xs text-gray-600">{entry.erro}</p>}
+                      {entry.erro && <p title={entry.erro.replace(/\\n/g, '\n')} className="mt-1 max-w-[16rem] truncate text-xs text-gray-600">{entry.erro}</p>}
                     </td>
                     <td className="whitespace-nowrap px-4 py-2.5 text-gray-600">{entry.sender_host ?? '—'}</td>
                     <td className="px-4 py-2.5 text-right">
