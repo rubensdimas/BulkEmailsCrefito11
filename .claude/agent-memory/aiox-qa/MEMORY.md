@@ -1,0 +1,1 @@
+- [Gate run quirks](project_gate_runs.md) — playwright-report gets dirtied, ECONNREFUSED noise is expected, CodeRabbit absent
