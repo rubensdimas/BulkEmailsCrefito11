@@ -14,6 +14,8 @@
     "worker": "ts-node src/queue/emailWorker.ts",
     "reconcile:email-jobs": "node dist/scripts/reconcileEmailJobs.js",
     "reconcile:email-jobs:dev": "ts-node src/scripts/reconcileEmailJobs.ts",
+    "mailgrid:backfill": "node dist/scripts/mailgridBackfill.js",
+    "mailgrid:backfill:dev": "ts-node src/scripts/mailgridBackfill.ts",
     "user:admin": "node dist/scripts/manageLocalAdmin.js",
     "user:admin:dev": "ts-node src/scripts/manageLocalAdmin.ts",
     "test": "jest",

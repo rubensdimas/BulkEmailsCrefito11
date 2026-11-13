@@ -6,6 +6,12 @@
  */
 import { getEmailQueue, EMAIL_QUEUE_NAME, EmailJobData } from "./emailQueue";
 import { emailJobProcessor } from "./processors";
+import {
+  applyMailgridReportSchedule,
+  closeMailgridReportQueue,
+  getMailgridReportQueue,
+  processMailgridReportJob,
+} from "./mailgridReportQueue";
 
 interface BullJobData {
   id?: string | number;
@@ -60,10 +66,25 @@ const startWorker = async (): Promise<void> => {
 
   console.log("✅ Email worker started");
 
+  // Mailgrid report collection shares this worker; its failures must not stop email delivery.
+  if (dbInitialized) {
+    try {
+      const { getDatabase } = await import("../config/database");
+      const { SystemConfigRepository } = await import("../repositories/systemConfigRepository");
+      const { getMailgridReportSettings } = await import("../services/mailgridReportSettings");
+      getMailgridReportQueue().process(1, (job) => processMailgridReportJob(job));
+      await applyMailgridReportSchedule(await getMailgridReportSettings(new SystemConfigRepository(getDatabase())));
+      console.log("✅ Mailgrid report worker started");
+    } catch (error) {
+      console.error("❌ Mailgrid report worker failed to start:", error instanceof Error ? error.message : error);
+    }
+  }
+
   // Graceful shutdown
   const shutdown = async (): Promise<void> => {
     console.log("\n🛑 Shutting down worker...");
     await queue.close();
+    await closeMailgridReportQueue();
 
     // Close database
     try {
