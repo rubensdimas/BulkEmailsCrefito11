@@ -5,6 +5,7 @@ const sections = [
   { to: '/settings/users', label: 'Usuários' },
   { to: '/settings/email', label: 'E-mail' },
   { to: '/settings/oidc', label: 'Login intranet' },
+  { to: '/settings/mailgrid-reports', label: 'Relatórios Mailgrid' },
 ];
 
 const sideClass = ({ isActive }: { isActive: boolean }) =>
