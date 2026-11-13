@@ -57,6 +57,10 @@ export const parseReportRows = (body: unknown): { entries: MailgridReportEntryIn
   if (first && String(first.codigo ?? '') === '207') {
     throw new MailgridReportError('auth_failed', 'Mailgrid report authentication failed (codigo 207)');
   }
+  // Any other {status, codigo} object is an API error, not a delivery row; failing keeps gaps visible.
+  if (first && first.codigo !== undefined && !first.msgid) {
+    throw new MailgridReportError('invalid_response', `Mailgrid report error (codigo ${String(first.codigo)}): ${String(first.status ?? '').slice(0, 200)}`);
+  }
   const entries: MailgridReportEntryInput[] = [];
   let skipped = 0;
   for (const item of body) {

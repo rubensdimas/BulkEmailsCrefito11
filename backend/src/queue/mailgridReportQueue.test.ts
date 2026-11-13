@@ -47,7 +47,7 @@ describe('mailgridReportQueue', () => {
 
   it('enqueueBackfill throws backfill_running and enqueues nothing when a backfill is running', async () => {
     const queue = fakeQueue();
-    const repository = { hasRunningBackfill: jest.fn().mockResolvedValue(true), createRun: jest.fn() };
+    const repository = { hasRunningBackfill: jest.fn().mockResolvedValue(true), createRun: jest.fn(), finishRun: jest.fn() };
     await expect(enqueueBackfill('admin', { queue: queue as never, repository })).rejects.toBeInstanceOf(MailgridReportConflictError);
     expect(repository.createRun).not.toHaveBeenCalled();
     expect(queue.add).not.toHaveBeenCalled();
@@ -59,12 +59,25 @@ describe('mailgridReportQueue', () => {
     const repository = {
       hasRunningBackfill: jest.fn().mockResolvedValue(false),
       createRun: jest.fn().mockImplementation(async () => ({ id: `run-${++id}` })),
+      finishRun: jest.fn(),
     };
     await expect(enqueueBackfill('admin', { queue: queue as never, repository, now: new Date('2026-11-12T12:00:00Z') }))
       .resolves.toEqual({ blocks: 13 });
     expect(repository.createRun).toHaveBeenCalledTimes(13);
     expect(repository.createRun.mock.calls[0][0]).toMatchObject({ type: 'backfill', triggered_by: 'admin' });
     expect(queue.add.mock.calls[0][0]).toMatchObject({ kind: 'backfill', runId: 'run-1' });
+  });
+
+  it('enqueueBackfill marks the run failed when the job cannot be enqueued', async () => {
+    const queue = fakeQueue();
+    queue.add.mockRejectedValueOnce(new Error('Redis down'));
+    const repository = {
+      hasRunningBackfill: jest.fn().mockResolvedValue(false),
+      createRun: jest.fn().mockResolvedValue({ id: 'run-1' }),
+      finishRun: jest.fn().mockResolvedValue(undefined),
+    };
+    await expect(enqueueBackfill('admin', { queue: queue as never, repository })).rejects.toThrow('Redis down');
+    expect(repository.finishRun).toHaveBeenCalledWith('run-1', expect.objectContaining({ status: 'failed', error_code: 'request_failed' }));
   });
 
   it('processMailgridReportJob scheduled uses windowHours from settings', async () => {

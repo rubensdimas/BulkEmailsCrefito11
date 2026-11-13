@@ -79,7 +79,7 @@ export const enqueueBackfill = async (
   triggeredBy: string,
   deps: {
     queue?: ReportQueue;
-    repository?: Pick<MailgridReportRepository, 'hasRunningBackfill' | 'createRun'>;
+    repository?: Pick<MailgridReportRepository, 'hasRunningBackfill' | 'createRun' | 'finishRun'>;
     now?: Date;
   } = {},
 ): Promise<{ blocks: number }> => {
@@ -91,7 +91,15 @@ export const enqueueBackfill = async (
     const run = await repository.createRun({
       type: 'backfill', window_start: window.start, window_end: window.end, triggered_by: triggeredBy,
     });
-    await target.add({ kind: 'backfill', runId: run.id, start: window.start.toISOString(), end: window.end.toISOString() }, JOB_RETENTION);
+    try {
+      await target.add({ kind: 'backfill', runId: run.id, start: window.start.toISOString(), end: window.end.toISOString() }, JOB_RETENTION);
+    } catch (error) {
+      // A run without a job would stay "running" and block later backfills.
+      await repository.finishRun(run.id, {
+        status: 'failed', fetched: 0, inserted: 0, skipped: 0, error_code: 'request_failed', error_message: 'Falha ao enfileirar o bloco.',
+      });
+      throw error;
+    }
   }
   return { blocks: windows.length };
 };

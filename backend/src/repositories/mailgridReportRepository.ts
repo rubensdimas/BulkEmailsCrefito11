@@ -7,6 +7,8 @@ import type {
 const ENTRIES = 'mailgrid_report_entries';
 const RUNS = 'mailgrid_report_runs';
 const INSERT_CHUNK_SIZE = 500;
+// A backfill block runs in seconds; a run still "running" after this was lost (worker killed, Redis reset).
+const STALE_RUNNING_HOURS = 6;
 const ENTRY_COLUMNS = [
   'id', 'msgid', 'email_de', 'email_para', 'status', 'tipo_status', 'sender', 'sender_ip', 'sender_host', 'size',
   'delivery_ip', 'delivery_host', 'message_id', 'assunto', 'event_at', 'sent_at', 'collected_at',
@@ -21,7 +23,7 @@ const normalizeRun = (row: Record<string, unknown>): MailgridReportRun => ({
 });
 
 export class MailgridReportRepository {
-  constructor(private readonly db: Knex) {}
+  constructor(readonly db: Knex) {}
 
   async createRun(input: {
     type: MailgridReportRunType; window_start: Date; window_end: Date; triggered_by: string | null;
@@ -63,8 +65,18 @@ export class MailgridReportRepository {
     return row ? normalizeRun(row) : null;
   }
 
+  /** Latest run that tells whether the token works: a success or a credential failure. */
+  async latestConclusiveRun(): Promise<MailgridReportRun | null> {
+    const row = await this.db(RUNS)
+      .where({ status: 'success' })
+      .orWhere((query) => query.where({ status: 'failed' }).whereIn('error_code', ['auth_failed', 'token_not_configured']))
+      .orderBy('started_at', 'desc').first();
+    return row ? normalizeRun(row) : null;
+  }
+
   async hasRunningBackfill(): Promise<boolean> {
-    return Boolean(await this.db(RUNS).where({ type: 'backfill', status: 'running' }).first('id'));
+    return Boolean(await this.db(RUNS).where({ type: 'backfill', status: 'running' })
+      .andWhere('started_at', '>', this.db.raw(`NOW() - INTERVAL '${STALE_RUNNING_HOURS} hours'`)).first('id'));
   }
 
   private filtered(filters: ReportFilters): Knex.QueryBuilder {

@@ -23,7 +23,7 @@ const adminRequest = (body: unknown = {}) => ({
 
 const makeDeps = (overrides: Partial<MailgridReportAdminDeps> = {}): MailgridReportAdminDeps => ({
   readToken: jest.fn().mockReturnValue('token'),
-  latestRun: jest.fn().mockResolvedValue(null),
+  latestConclusiveRun: jest.fn().mockResolvedValue(null),
   listRuns: jest.fn().mockResolvedValue([]),
   getSettings: jest.fn().mockResolvedValue({ enabled: true, time: '03:00', windowHours: 48 }),
   saveSettings: jest.fn().mockResolvedValue({ settings: { enabled: true, time: '04:30', windowHours: 24 }, changedFields: ['time', 'windowHours'] }),
@@ -36,7 +36,7 @@ const makeDeps = (overrides: Partial<MailgridReportAdminDeps> = {}): MailgridRep
 
 describe('mailgrid report admin routes', () => {
   it('reports auth_failed after a failed authentication run', async () => {
-    const deps = makeDeps({ latestRun: jest.fn().mockResolvedValue({ status: 'failed', error_code: 'auth_failed' }) });
+    const deps = makeDeps({ latestConclusiveRun: jest.fn().mockResolvedValue({ status: 'failed', error_code: 'auth_failed' }) });
     const response = mockResponse();
     await handler(createMailgridReportAdminRouter(deps), 'get', '/status')(adminRequest(), response as unknown as Response, jest.fn());
     expect(response.json).toHaveBeenCalledWith({ success: true, data: { tokenState: 'auth_failed' } });
@@ -48,7 +48,7 @@ describe('mailgrid report admin routes', () => {
       adminRequest(), missing as unknown as Response, jest.fn());
     expect(missing.json).toHaveBeenCalledWith({ success: true, data: { tokenState: 'not_configured' } });
     const ok = mockResponse();
-    await handler(createMailgridReportAdminRouter(makeDeps({ latestRun: jest.fn().mockResolvedValue({ status: 'success', error_code: null }) })), 'get', '/status')(
+    await handler(createMailgridReportAdminRouter(makeDeps({ latestConclusiveRun: jest.fn().mockResolvedValue({ status: 'success', error_code: null }) })), 'get', '/status')(
       adminRequest(), ok as unknown as Response, jest.fn());
     expect(ok.json).toHaveBeenCalledWith({ success: true, data: { tokenState: 'configured' } });
   });

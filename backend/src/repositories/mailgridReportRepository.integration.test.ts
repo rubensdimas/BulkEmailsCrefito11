@@ -81,6 +81,29 @@ describeDatabase('MailgridReportRepository PostgreSQL integration', () => {
     });
   });
 
+  it('hasRunningBackfill ignores backfill runs stuck in running for more than 6 hours', async () => {
+    await inSchema('stale', async (repository) => {
+      const run = await repository.createRun({
+        type: 'backfill', window_start: new Date('2026-08-14T00:00:00Z'), window_end: new Date('2026-08-21T00:00:00Z'), triggered_by: 'it',
+      });
+      await repository.db('mailgrid_report_runs').where({ id: run.id })
+        .update({ started_at: new Date(Date.now() - 7 * 60 * 60 * 1000) });
+      await expect(repository.hasRunningBackfill()).resolves.toBe(false);
+    });
+  });
+
+  it('latestConclusiveRun skips running and request_failed runs', async () => {
+    await inSchema('conclusive', async (repository) => {
+      const window = { window_start: new Date('2026-11-10T00:00:00Z'), window_end: new Date('2026-11-11T00:00:00Z'), triggered_by: 'it' };
+      const authFailed = await repository.createRun({ type: 'scheduled', ...window });
+      await repository.finishRun(authFailed.id, { status: 'failed', fetched: 0, inserted: 0, skipped: 0, error_code: 'auth_failed' });
+      const network = await repository.createRun({ type: 'manual', ...window });
+      await repository.finishRun(network.id, { status: 'failed', fetched: 0, inserted: 0, skipped: 0, error_code: 'request_failed' });
+      await repository.createRun({ type: 'manual', ...window });
+      await expect(repository.latestConclusiveRun()).resolves.toMatchObject({ id: authFailed.id, error_code: 'auth_failed' });
+    });
+  });
+
   it('hasRunningBackfill is true only while a backfill run is running', async () => {
     await inSchema('backfill', async (repository) => {
       await expect(repository.hasRunningBackfill()).resolves.toBe(false);

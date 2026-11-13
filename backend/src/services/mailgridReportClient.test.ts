@@ -56,6 +56,8 @@ describe('mailgridReportClient', () => {
 
   it('throws auth_failed on the codigo 207 body', () => {
     expect(() => parseReportRows(authFailure)).toThrow(expect.objectContaining({ code: 'auth_failed' }));
+    expect(() => parseReportRows([{ status: 'STATUS: ERRO - PERIODO INVALIDO', codigo: '301' }]))
+      .toThrow(expect.objectContaining({ code: 'invalid_response', message: expect.stringContaining('301') }));
     expect(() => parseReportRows({ erro: true })).toThrow(expect.objectContaining({ code: 'invalid_response' }));
   });
 

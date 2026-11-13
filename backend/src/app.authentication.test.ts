@@ -29,6 +29,7 @@ jest.mock('./services/databaseService', () => ({
   getJobRepository: () => mockJobRepository,
   getEmailLogRepository: () => ({}),
   getConfigService: () => mockConfigService,
+  getMailgridReportRepository: () => ({ latestConclusiveRun: async () => null }),
   isDatabaseReady: () => true,
 }));
 
@@ -116,6 +117,13 @@ describe('actual application authentication route mounting', () => {
   it('denies operators and allows admins on the mailgrid report admin mount', async () => {
     expect((await request('/api/admin/mailgrid-reports/status', 'operator')).status).toBe(403);
     expect((await request('/api/admin/mailgrid-reports/status')).status).toBe(401);
+  });
+
+  it('does not spend the shared config rate limit on the admin banner status', async () => {
+    for (let index = 0; index < 35; index += 1) {
+      expect((await request('/api/admin/mailgrid-reports/status', 'admin')).status).toBe(200);
+    }
+    expect((await request('/api/config/mailgrid', 'admin')).status).toBe(200);
   });
 
   it('allows actual password endpoint during forced change and clears the restriction', async () => {

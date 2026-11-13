@@ -28,7 +28,7 @@ export type MailgridTokenState = 'configured' | 'not_configured' | 'auth_failed'
 
 export interface MailgridReportAdminDeps {
   readToken: () => string | null;
-  latestRun: () => Promise<Pick<MailgridReportRun, 'status' | 'error_code'> | null>;
+  latestConclusiveRun: () => Promise<Pick<MailgridReportRun, 'status' | 'error_code'> | null>;
   listRuns: (limit: number) => Promise<MailgridReportRun[]>;
   getSettings: () => Promise<MailgridReportSettings>;
   saveSettings: (input: unknown) => Promise<{ settings: MailgridReportSettings; changedFields: string[] }>;
@@ -42,7 +42,7 @@ const settingsRepository = () => new SystemConfigRepository(getDatabase());
 
 const defaultDeps = (): MailgridReportAdminDeps => ({
   readToken: readMailgridReportToken,
-  latestRun: () => getMailgridReportRepository().latestRun(),
+  latestConclusiveRun: () => getMailgridReportRepository().latestConclusiveRun(),
   listRuns: (limit) => getMailgridReportRepository().listRuns(limit),
   getSettings: () => getMailgridReportSettings(settingsRepository()),
   saveSettings: (input) => saveMailgridReportSettings(settingsRepository(), input),
@@ -52,10 +52,10 @@ const defaultDeps = (): MailgridReportAdminDeps => ({
   audit: logSettingsChange,
 });
 
-/** The banner state: missing token, or the latest run failed on credentials, until a later run succeeds. */
-export const resolveTokenState = async (deps: Pick<MailgridReportAdminDeps, 'readToken' | 'latestRun'>): Promise<MailgridTokenState> => {
+/** The banner state: missing token, or the latest conclusive run failed on credentials, until a later run succeeds. */
+export const resolveTokenState = async (deps: Pick<MailgridReportAdminDeps, 'readToken' | 'latestConclusiveRun'>): Promise<MailgridTokenState> => {
   if (!deps.readToken()) return 'not_configured';
-  const latest = await deps.latestRun();
+  const latest = await deps.latestConclusiveRun();
   const credentialFailure = latest?.status === 'failed'
     && (latest.error_code === 'auth_failed' || latest.error_code === 'token_not_configured');
   return credentialFailure ? 'auth_failed' : 'configured';
