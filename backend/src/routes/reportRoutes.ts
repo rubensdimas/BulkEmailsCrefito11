@@ -1,3 +1,4 @@
+import { once } from 'events';
 import { Router } from 'express';
 import type { NextFunction, Request, Response } from 'express';
 import { format } from '@fast-csv/format';
@@ -53,14 +54,23 @@ export const createReportRouter = (repository: () => ReportRepository = getMailg
     response.setHeader('Content-Disposition', `attachment; filename="relatorio-mailgrid-${csvDate(new Date())}.csv"`);
     const csv = format({ headers: true });
     csv.pipe(response);
-    for await (const row of repo.stream(filters, REPORT_CSV_MAX_ROWS)) {
-      csv.write({
-        data_hora: formatSaoPaulo(row.event_at), remetente: csvSafe(row.email_de), destinatario: csvSafe(row.email_para),
-        assunto: csvSafe(row.assunto), resultado: csvSafe(row.tipo_status), status: csvSafe(row.status),
-        servidor_origem: csvSafe(row.sender_host), ip_origem: csvSafe(row.sender_ip),
-        servidor_destino: csvSafe(row.delivery_host), ip_destino: csvSafe(row.delivery_ip), tamanho: csvSafe(row.size),
-        msgid: csvSafe(row.msgid), message_id: csvSafe(row.message_id), erro: csvSafe(row.erro),
-      });
+    try {
+      for await (const row of repo.stream(filters, REPORT_CSV_MAX_ROWS)) {
+        const ready = csv.write({
+          data_hora: formatSaoPaulo(row.event_at), remetente: csvSafe(row.email_de), destinatario: csvSafe(row.email_para),
+          assunto: csvSafe(row.assunto), resultado: csvSafe(row.tipo_status), status: csvSafe(row.status),
+          servidor_origem: csvSafe(row.sender_host), ip_origem: csvSafe(row.sender_ip),
+          servidor_destino: csvSafe(row.delivery_host), ip_destino: csvSafe(row.delivery_ip), tamanho: csvSafe(row.size),
+          msgid: csvSafe(row.msgid), message_id: csvSafe(row.message_id), erro: csvSafe(row.erro),
+        });
+        if (!ready) await once(csv, 'drain');
+      }
+    } catch (error) {
+      // Headers are already sent: a JSON error is impossible, so cut the download instead of handing it to next().
+      console.error('Error in report CSV export:', error);
+      csv.unpipe(response);
+      response.destroy(error as Error);
+      return;
     }
     csv.end();
   }));

@@ -80,6 +80,24 @@ describe('report routes', () => {
     expect(csv).toContain("'-550 5.1.1 no such user");
   });
 
+  it('export.csv destroys the response when the stream fails after headers', async () => {
+    const failure = new Error('stream broke');
+    const repo = repository(2);
+    repo.stream.mockImplementation(async function* () { yield row; throw failure; });
+    const sink = new PassThrough();
+    sink.on('error', () => undefined);
+    const response = Object.assign(sink, { setHeader: jest.fn(), status: jest.fn(), json: jest.fn() });
+    const destroy = jest.spyOn(sink, 'destroy');
+    const next = jest.fn();
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    await handler(createReportRouter(() => repo), 'get', '/export.csv')({ query: {} } as unknown as Request,
+      response as unknown as Response, next);
+    expect(destroy).toHaveBeenCalledWith(failure);
+    expect(next).not.toHaveBeenCalled();
+    expect(consoleError).toHaveBeenCalledWith('Error in report CSV export:', failure);
+    consoleError.mockRestore();
+  });
+
   it('GET /sender-hosts lists known hosts', async () => {
     const response = mockResponse();
     await handler(createReportRouter(() => repository()), 'get', '/sender-hosts')({ query: {} } as unknown as Request,

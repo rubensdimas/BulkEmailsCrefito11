@@ -83,6 +83,25 @@ describeDatabase('MailgridReportRepository PostgreSQL integration', () => {
     });
   });
 
+  // Regression for Story 5.4: knex streaming on pg needs the pg-query-stream package.
+  it('stream yields the filtered rows newest first, capped by limit', async () => {
+    await inSchema('stream', async (repository) => {
+      const run = await repository.createRun({
+        type: 'manual', window_start: new Date('2026-11-01T00:00:00Z'), window_end: new Date('2026-11-12T00:00:00Z'), triggered_by: 'it',
+      });
+      await repository.insertEntries(run.id, [
+        entry({ msgid: 'a', event_at: new Date('2026-11-11T10:00:00Z') }),
+        entry({ msgid: 'b', event_at: new Date('2026-11-11T11:00:00Z') }),
+        entry({ msgid: 'c', event_at: new Date('2026-11-11T12:00:00Z') }),
+        entry({ msgid: 'old', event_at: new Date('2026-10-01T00:00:00Z') }),
+      ]);
+      const filters = { from: new Date('2026-11-01T00:00:00Z'), to: new Date('2026-11-12T00:00:00Z'), page: 1, pageSize: 50 };
+      const msgids: string[] = [];
+      for await (const row of repository.stream(filters, 2)) msgids.push(row.msgid);
+      expect(msgids).toEqual(['c', 'b']);
+    });
+  });
+
   it('hasRunningBackfill ignores backfill runs stuck in running for more than 6 hours', async () => {
     await inSchema('stale', async (repository) => {
       const run = await repository.createRun({
