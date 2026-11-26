@@ -1,0 +1,71 @@
+schema: 1
+story: "5.4"
+story_title: "Exportação CSV dos Relatórios Mailgrid falha no download"
+gate: FAIL
+status_reason: "A causa (pg-query-stream ausente) está corrigida e todos os quality_gate_tools passam, mas a espera por 'drain' (AC 3) trava o loop para sempre quando o cliente cancela o download, e a conexão do pool fica presa; reproduzido contra o Postgres de dev. Com pool max 10, cancelamentos esgotam o banco do backend inteiro."
+reviewer: "Quinn (Test Architect)"
+updated: "2026-11-26T12:00:00-03:00"
+quality_score: 62
+top_issues:
+  - id: "REL-001"
+    severity: high
+    finding: "Ao cancelar o download, o Node desfaz o pipe csv→response (evento 'close'). O buffer do csv enche, write() devolve false e 'await once(csv, \"drain\")' nunca resolve. O for-await não termina e o stream do knex segura a conexão do pool. Reproduzido com o mesmo loop, knex/pg reais e pool max 1: depois do abort, 'select 1' dá 'Timeout acquiring a connection'. Sem o drain, o loop terminava e liberava a conexão. Em produção o pool tem max 10, e o mesmo pool atende o envio de e-mails e o restante da API."
+    suggested_action: "Trocar o loop por stream.promises.pipeline(Readable.from(linhas mapeadas de repo.stream()), csv, response) dentro do try/catch. O pipeline já trata backpressure e, no abort, destrói a origem, o que solta a conexão. Alternativa mínima: esperar Promise.race([once(csv,'drain'), once(response,'close')]) e sair do for-await com break se response.destroyed. Incluir um teste do abort (a origem é finalizada / a conexão volta ao pool)."
+  - id: "TEST-001"
+    severity: medium
+    finding: "O teste 'stream yields…' roda dentro de uma transação, e lá o modo de falha difere do uso real. Simulando pg-query-stream ausente (resolução bloqueada, sem mexer em node_modules), o stream na transação nunca termina. No pool, que é o caminho de produção, ele rejeita com a mensagem do knex. É o 'trava sem forceExit' das Completion Notes: o teste não detecta a regressão, apenas trava o CI. Também não há teste do caminho de backpressure/abort."
+    suggested_action: "Garantir que a regressão falhe e o processo termine: timeout explícito no teste ou --forceExit no script test:integration. Cobrir o abort/backpressure junto com o REL-001."
+  - id: "REL-002"
+    severity: low
+    finding: "Um erro antes do primeiro byte (ex.: pg-query-stream ausente, conexão recusada) também destrói o socket, embora response.headersSent ainda seja false e um 500 JSON fosse possível. Isso foi aceito na decisão Q2 e está registrado nas Completion Notes. O csv também não é destruído depois do unpipe (fica para o GC)."
+    suggested_action: "Opcional: se !response.headersSent, chamar next(error); senão, destroy. Pouco ganho enquanto o frontend usar <a download> (fora de escopo)."
+  - id: "SEC-001"
+    severity: low
+    finding: "console.error loga o objeto de erro inteiro. Em erros de query, a mensagem do knex inclui o SQL com os bindings, ou seja, os filtros digitados (e-mail/assunto). A exposição é a mesma do httpErrorHandler, que loga err.message, e nada vai para o cliente."
+    suggested_action: "Aceitável. Se a política de logs ficar mais estrita, logar só error.message/code."
+  - id: "TEST-002"
+    severity: low
+    finding: "CodeRabbit continua não instalado (mesmo encaminhamento dos gates 5.1–5.3)."
+    suggested_action: "Mesmo encaminhamento do gate 5.1."
+waiver:
+  active: false
+evidence:
+  tests_reviewed: 506
+  risks_identified: 5
+  trace:
+    ac_covered: [1, 2, 4, 5]
+    ac_gaps: [3]
+    ac_evidence:
+      "1": "pg-query-stream ^4.17.1 em dependencies (lock: pg-query-stream 4.17.1 → pg-cursor 2.22.1, pg 8.20.0 deduped); Dockerfile usa npm ci --omit=dev, então o pacote entra na imagem. A rota real contra o Postgres não foi exercitada ponta a ponta; o repo.stream() foi, pela integração."
+      "2": "catch em volta do loop: console.error('Error in report CSV export:', error), csv.unpipe(response), response.destroy(error), return sem next(). Erros de parse e do count continuam em handle() (400/422/next). Teste unitário cobre o caso."
+      "3": "Parcial: write() → false aguarda 'drain'. O caminho trava quando o cliente aborta (REL-001), e nenhum teste exercita o drain."
+      "4": "Teste 'stream yields the filtered rows newest first, capped by limit' passa no Postgres real. Sem o pacote, ele trava em vez de falhar (TEST-001)."
+      "5": "'export.csv destroys the response when the stream fails after headers': verifica destroy(failure), next não chamado e o log."
+  commands_rerun_by_qa:
+    - "backend: npx tsc --noEmit OK; rtk proxy npm run lint OK (eslint . --ext .ts, sem issues); npm test 468 passed / 38 skipped (54 suítes passaram, 5 skipped)"
+    - "backend: POSTGRES_PORT=5432 npm run test:integration 38/38 (5 suítes; bulkmail-postgres e bulkmail-redis healthy)"
+    - "repro (scratchpad, fora do repo): loop idêntico + fast-csv + cliente que aborta → com drain, origem não finalizada e loop não termina; sem drain, termina (100000 linhas)"
+    - "repro: knex+pg reais, pool max 1, abort no meio → 'Knex: Timeout acquiring a connection'"
+    - "repro: pg-query-stream bloqueado via Module._resolveFilename → transação trava (>5s); no pool rejeita com 'knex PostgreSQL query streaming requires the pg-query-stream package'"
+nfr_validation:
+  security:
+    status: PASS
+    notes: "Rota mantém a autenticação; csvSafe preservado em todas as colunas. O log pode conter bindings de filtro, mesma exposição do handler global (SEC-001)."
+  performance:
+    status: PASS
+    notes: "A intenção do drain é correta: limita a memória a ~16 objetos + buffer do socket em vez de bufferizar até 100k linhas."
+  reliability:
+    status: FAIL
+    notes: "Cancelar o download vaza uma conexão do pool por requisição, de forma indefinida (REL-001)."
+  maintainability:
+    status: PASS
+    notes: "Diff pequeno e comentado; segue o padrão de log 'Error in …'."
+recommendations:
+  immediate:
+    - action: "Corrigir o abort do export (pipeline ou race drain/close + break) e testar que a conexão volta ao pool."
+      refs: ["backend/src/routes/reportRoutes.ts", "backend/src/routes/reportRoutes.test.ts"]
+    - action: "Fazer o teste de integração falhar em vez de travar quando pg-query-stream faltar."
+      refs: ["backend/src/repositories/mailgridReportRepository.integration.test.ts", "backend/package.json"]
+  future:
+    - action: "Após o deploy (reconstruir a imagem do bulkmail, @devops), exportar um período real e conferir o arquivo completo."
+      refs: ["backend/Dockerfile"]
