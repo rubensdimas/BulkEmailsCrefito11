@@ -19,7 +19,7 @@
     "user:admin": "node dist/scripts/manageLocalAdmin.js",
     "user:admin:dev": "ts-node src/scripts/manageLocalAdmin.ts",
     "test": "jest",
-    "test:integration": "RUN_DATABASE_INTEGRATION=true RUN_REDIS_INTEGRATION=true jest src/repositories/emailLogRepository.integration.test.ts src/repositories/userRepository.integration.test.ts src/repositories/systemConfigRepository.integration.test.ts src/repositories/mailgridReportRepository.integration.test.ts src/queue/emailQueue.integration.test.ts --runInBand",
+    "test:integration": "RUN_DATABASE_INTEGRATION=true RUN_REDIS_INTEGRATION=true jest src/repositories/emailLogRepository.integration.test.ts src/repositories/userRepository.integration.test.ts src/repositories/systemConfigRepository.integration.test.ts src/repositories/mailgridReportRepository.integration.test.ts src/queue/emailQueue.integration.test.ts --runInBand --forceExit",
     "lint": "eslint . --ext .ts"
   },
   "keywords": [
@@ -44,6 +44,7 @@
     "knex": "^3.1.0",
     "multer": "^1.4.5-lts.1",
     "pg": "^8.11.3",
+    "pg-query-stream": "^4.17.1",
     "uuid": "^11.1.1",
     "winston": "^3.11.0",
     "yaml": "^2.3.4"

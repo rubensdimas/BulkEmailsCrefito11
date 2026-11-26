@@ -1,4 +1,4 @@
-import { PassThrough } from 'stream';
+import { PassThrough, Writable } from 'stream';
 import type { NextFunction, Request, Response, Router } from 'express';
 import { createReportRouter } from './reportRoutes';
 
@@ -68,9 +68,10 @@ describe('report routes', () => {
     const chunks: Buffer[] = [];
     sink.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
     const response = Object.assign(sink, { setHeader: jest.fn(), status: jest.fn(), json: jest.fn() });
+    const ended = new Promise((resolve) => sink.on('end', resolve));
     await handler(createReportRouter(() => repo), 'get', '/export.csv')({ query: {} } as unknown as Request,
       response as unknown as Response, jest.fn());
-    await new Promise((resolve) => sink.on('end', resolve));
+    await ended;
     const csv = Buffer.concat(chunks).toString('utf8');
     expect(response.setHeader).toHaveBeenCalledWith('Content-Disposition', expect.stringMatching(/^attachment; filename="relatorio-mailgrid-\d{8}\.csv"$/));
     expect(csv.split('\n')[0]).toContain('data_hora,remetente,destinatario,assunto,resultado');
@@ -78,6 +79,45 @@ describe('report routes', () => {
     expect(csv).toContain("'=cmd()");
     expect(csv.split('\n')[0].split(',')).toContain('erro');
     expect(csv).toContain("'-550 5.1.1 no such user");
+  });
+
+  it('export.csv destroys the response when the stream fails after headers', async () => {
+    const failure = new Error('stream broke');
+    const repo = repository(2);
+    repo.stream.mockImplementation(async function* () { yield row; throw failure; });
+    const sink = new PassThrough();
+    sink.on('error', () => undefined);
+    const response = Object.assign(sink, { setHeader: jest.fn(), status: jest.fn(), json: jest.fn() });
+    const destroy = jest.spyOn(sink, 'destroy');
+    const next = jest.fn();
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    await handler(createReportRouter(() => repo), 'get', '/export.csv')({ query: {} } as unknown as Request,
+      response as unknown as Response, next);
+    expect(destroy).toHaveBeenCalledWith(failure);
+    expect(next).not.toHaveBeenCalled();
+    expect(consoleError).toHaveBeenCalledWith('Error in report CSV export:', failure);
+    consoleError.mockRestore();
+  });
+
+  it('export.csv closes the DB stream when the client aborts the download', async () => {
+    let sourceClosed = false;
+    const repo = repository(100_000);
+    repo.stream.mockImplementation(async function* () {
+      try { for (;;) yield row; } finally { sourceClosed = true; }
+    });
+    const sink = new Writable({
+      highWaterMark: 1,
+      write(_chunk, _encoding, callback) { this.destroy(); callback(); }, // client goes away after the first chunk
+    });
+    const response = Object.assign(sink, { setHeader: jest.fn(), status: jest.fn(), json: jest.fn() });
+    const next = jest.fn();
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    await handler(createReportRouter(() => repo), 'get', '/export.csv')({ query: {} } as unknown as Request,
+      response as unknown as Response, next);
+    expect(sourceClosed).toBe(true);
+    expect(next).not.toHaveBeenCalled();
+    expect(consoleError).not.toHaveBeenCalled();
+    consoleError.mockRestore();
   });
 
   it('GET /sender-hosts lists known hosts', async () => {
