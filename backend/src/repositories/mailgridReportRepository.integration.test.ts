@@ -100,7 +100,7 @@ describeDatabase('MailgridReportRepository PostgreSQL integration', () => {
       for await (const row of repository.stream(filters, 2)) msgids.push(row.msgid);
       expect(msgids).toEqual(['c', 'b']);
     });
-  });
+  }, 15_000); // without pg-query-stream the stream never settles inside a transaction: time out instead of hanging
 
   it('hasRunningBackfill ignores backfill runs stuck in running for more than 6 hours', async () => {
     await inSchema('stale', async (repository) => {

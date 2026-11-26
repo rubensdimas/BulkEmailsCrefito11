@@ -1,8 +1,9 @@
-import { once } from 'events';
+import { pipeline } from 'stream/promises';
 import { Router } from 'express';
 import type { NextFunction, Request, Response } from 'express';
 import { format } from '@fast-csv/format';
 import type { MailgridReportRepository } from '../repositories/mailgridReportRepository';
+import type { MailgridReportEntry } from '../models/MailgridReport';
 import { getMailgridReportRepository } from '../services/databaseService';
 import { REPORT_CSV_MAX_ROWS, ReportQueryError, csvSafe, formatSaoPaulo, parseReportQuery } from '../services/reportQuery';
 
@@ -52,27 +53,26 @@ export const createReportRouter = (repository: () => ReportRepository = getMailg
     }
     response.setHeader('Content-Type', 'text/csv; charset=utf-8');
     response.setHeader('Content-Disposition', `attachment; filename="relatorio-mailgrid-${csvDate(new Date())}.csv"`);
-    const csv = format({ headers: true });
-    csv.pipe(response);
-    try {
-      for await (const row of repo.stream(filters, REPORT_CSV_MAX_ROWS)) {
-        const ready = csv.write({
+    const toCsvRows = async function* (rows: AsyncIterable<MailgridReportEntry>) {
+      for await (const row of rows) {
+        yield {
           data_hora: formatSaoPaulo(row.event_at), remetente: csvSafe(row.email_de), destinatario: csvSafe(row.email_para),
           assunto: csvSafe(row.assunto), resultado: csvSafe(row.tipo_status), status: csvSafe(row.status),
           servidor_origem: csvSafe(row.sender_host), ip_origem: csvSafe(row.sender_ip),
           servidor_destino: csvSafe(row.delivery_host), ip_destino: csvSafe(row.delivery_ip), tamanho: csvSafe(row.size),
           msgid: csvSafe(row.msgid), message_id: csvSafe(row.message_id), erro: csvSafe(row.erro),
-        });
-        if (!ready) await once(csv, 'drain');
+        };
       }
+    };
+    try {
+      // pipeline handles backpressure and, on client abort or failure, closes the DB stream so the pool connection is freed.
+      await pipeline(repo.stream(filters, REPORT_CSV_MAX_ROWS), toCsvRows, format({ headers: true }), response);
     } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ERR_STREAM_PREMATURE_CLOSE') return; // client cancelled the download
       // Headers are already sent: a JSON error is impossible, so cut the download instead of handing it to next().
       console.error('Error in report CSV export:', error);
-      csv.unpipe(response);
       response.destroy(error as Error);
-      return;
     }
-    csv.end();
   }));
 
   return router;
